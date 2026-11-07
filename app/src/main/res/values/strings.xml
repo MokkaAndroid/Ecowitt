@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ecowidget</string>
+    <string name="widget_loading">Chargement…</string>
+    <string name="widget_description">Les mesures de ta station Ecowitt, en direct sur l\'écran d\'accueil.</string>
+</resources>
