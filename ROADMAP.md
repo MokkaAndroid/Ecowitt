@@ -2,9 +2,8 @@
 
 Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hors périmètre
 
-> État au 07/11/2026 : le code est écrit mais **n'a pas encore été compilé ni testé sur un téléphone**
-> (l'environnement de rédaction n'a pas accès au SDK Android). Le premier build GitHub Actions
-> fera office de première compilation : les erreurs éventuelles seront corrigées à ce moment-là.
+> État au 07/11/2026 : le code **compile** (build GitHub Actions réussi) mais **n'a pas encore été testé
+> sur un téléphone**. Prochaine étape : installer l'APK et dérouler la checklist en bas de page.
 
 ## Phase 0 — Cadrage
 - ✅ Station : Ecowitt HP2564 (console Wi-Fi → cloud ecowitt.net)
@@ -16,7 +15,7 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 - ✅ Structure Gradle (wrapper 8.9, AGP 8.7.3, Kotlin 2.0.21, catalogue de versions)
 - ✅ Manifeste, permissions minimales (Internet, alarmes exactes, démarrage)
 - ✅ Icône, thème sombre, ressources
-- 🧪 Première compilation (GitHub Actions)
+- ✅ Première compilation (GitHub Actions) réussie le 07/11/2026 — APK produit (≈10,9 Mo)
 
 ## Phase 2 — Données Ecowitt
 - ✅ Client API (unités métriques demandées : °C, hPa, km/h, mm, W/m²)
