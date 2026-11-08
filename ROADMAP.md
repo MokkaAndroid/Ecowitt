@@ -144,13 +144,22 @@ Retour du 08/11 : le rendu B était « très loin » des maquettes ; Mickaël de
 - ✅ README (installation pas à pas)
 - ⏳ Image d'aperçu dans le sélecteur de widgets
 
-## Phase 8 bis — Widget compact + fiches au toucher (maquettes « H »)
-- ✅ Maquettes : widget 4 × 2 (≈ 192 dp, 7 tuiles + alerte), variante 4 × 3, 9 fiches détaillées (température, pluie et neige, limite neige, vent, humidité, pression, prévisions, soleil, air)
-- 🔲 Validation des maquettes (tuiles du 4 × 2, règle de couleur pluie / neige glacée / neige qui tient)
-- ⏳ Étape 1 : widget 4 × 2 + volet de fiches (activité par-dessus l'écran d'accueil, glisser entre fiches) + fiches Température et Pluie et neige
+## Phase 8 bis — Widget compact + détail au toucher (maquettes « H » et « W3 »)
+Un réglage dans l'application, « Mode du widget », choisit entre trois variantes :
+- **Mode 1 · Actuel** : le grand widget d'aujourd'hui (≈ 610 dp), sans interaction. Reste disponible.
+- **Mode 2 · Compact + fiche plein écran** : tuiles 4 × 2 ; un appui ouvre un volet par-dessus l'écran d'accueil (maquettes H).
+- **Mode 3 · Compact + détail dans le widget** : tuiles 4 × 2 ; un appui remplace le contenu du widget par le détail, sur place (maquettes W3). Un bouton ⤢ ouvre la fiche plein écran du mode 2.
+
+Avancement :
+- ✅ Maquettes mode 2 : widget 4 × 2 (≈ 192 dp, 7 tuiles + alerte), variante 4 × 3, 9 fiches détaillées
+- ✅ Maquettes mode 3 : même widget 4 × 2, 7 détails sur place (17 pages avec onglets : température 3, pluie 4, limite neige 2, vent 2, humidité 2, pression 2, prévisions 2)
+- 🔲 Validation des maquettes (tuiles du 4 × 2, règle de couleur pluie / neige glacée / neige qui tient, pages du mode 3)
+- ⏳ Étape 0 : réglage « Mode du widget » (1 / 2 / 3), stocké dans `Storage`, relu par le widget via `WidgetRefresh.version` (changement de mode sans reposer le widget)
+- ⏳ Étape 1 : widget 4 × 2 + détail Température et Pluie et neige, dans les deux modes (mode 3 : état « tuile ouverte + onglet » enregistré dans l'état du widget, `ActionCallback` par tuile / onglet / retour, retour automatique aux tuiles après 30 s, bitmaps de courbes ; mode 2 : activité-volet avec glisser entre fiches)
 - ⏳ Données à ajouter : prévisions 8 jours, historique station pluie / vent / humidité, neige et limite pluie-neige heure par heure
-- ⏳ Étape 2 : fiches Limite neige, Vent, Pression, Prévisions
-- ⏳ Étape 3 : fiches Humidité, Soleil et UV, Air et pollens ; appui long = choix des tuiles
+- ⏳ Étape 2 : détails Limite neige, Vent, Pression, Prévisions
+- ⏳ Étape 3 : Humidité, Soleil et UV, Air et pollens ; appui long = choix des tuiles
+- ⚠️ Mode 3 : pas de lecture au doigt sur les courbes, une page à la fois, taille du widget fixée par le lanceur ; limite de 10 enfants par ligne / colonne dans Glance et poids total des bitmaps à surveiller
 
 ## Phase 9 — Idées pour la suite
 - ⏳ Flèche de direction du vent
