@@ -44,14 +44,19 @@ object MeteoFranceClient {
 
     private const val MAX_CAPS_BYTES = 12 * 1024 * 1024
     private val APP_ID_FORMAT = Regex("^[A-Za-z0-9+/=_-]{20,512}$")
+    private val JWT_FORMAT = Regex("^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
     private val COVERAGE_ID = Regex("<(?:\\w+:)?CoverageId>([^<]+)</(?:\\w+:)?CoverageId>")
     private val RUN_SUFFIX = Regex("^(.+)___(\\d{4}-\\d{2}-\\d{2}T\\d{2}\\.\\d{2}\\.\\d{2}Z)$")
 
-    /** Accepte aussi « Basic xxx » ou un texte entouré de guillemets, copiés depuis la commande curl du portail. */
+    /** Accepte aussi « Basic xxx » / « Bearer xxx » ou un texte entouré de guillemets, copiés depuis le portail. */
     fun normalizeAppId(raw: String): String =
-        raw.trim().trim('"', '\'').removePrefix("Basic ").removePrefix("basic ").trim()
+        raw.trim().trim('"', '\'').removePrefix("Basic ").removePrefix("basic ")
+            .removePrefix("Bearer ").removePrefix("bearer ").trim()
 
     fun isValidAppId(raw: String): Boolean = APP_ID_FORMAT.matches(normalizeAppId(raw))
+
+    /** Jeton déjà généré sur le portail (valable 1 h) : utilisable tel quel pour un test rapide. */
+    fun isJwt(raw: String): Boolean = JWT_FORMAT.matches(normalizeAppId(raw))
 
     // ───────────────────────────── Jeton ─────────────────────────────
 
@@ -200,10 +205,10 @@ object MeteoFranceClient {
     // ───────────────────────────── Test complet ─────────────────────────────
 
     /** Vérifie l'identifiant, puis lit le catalogue de chaque service candidat. Bloquant : à lancer hors du thread UI. */
-    fun test(ctx: Context, customUrl: String?): List<TestLine> {
+    fun test(ctx: Context, customUrl: String?, useStoredToken: Boolean = false): List<TestLine> {
         val out = ArrayList<TestLine>()
         val tok = try {
-            val t = token(ctx, forceNew = true)
+            val t = token(ctx, forceNew = !useStoredToken)
             out += TestLine("Jeton : OK (valable ~${((t.expiresAtMs - System.currentTimeMillis()) / 60_000L).coerceAtLeast(1)} min)", true)
             t
         } catch (e: Exception) {

@@ -421,17 +421,18 @@ private fun SettingsScreen(tick: Int) {
 
             Section("Météo-France · pluie imminente (test)") {
                 Text(
-                    "Sur portail-api.meteofrance.fr : abonne-toi aux API PIAF et AROME-PI, puis « Mes API » → « Générer token », type de token OAuth2 (pas API Key) → " +
-                        "dans la commande curl, copie la longue chaîne qui suit « Basic ». C'est ton Application ID : garde-le secret.",
+                    "Sur portail-api.meteofrance.fr → « Générer token » (type OAuth2). Pour un test rapide, colle le jeton généré (valable 1 h). " +
+                        "Pour un usage durable, colle l'Application ID : la longue chaîne qui suit « Basic » dans la commande curl. Garde-les secrets.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
                     value = mfAppId,
                     onValueChange = { mfAppId = it.trim() },
-                    label = { Text("Application ID Météo-France") },
+                    label = { Text("Application ID (ou jeton de 1 h)") },
                     singleLine = true,
-                    isError = mfAppId.isNotBlank() && !MeteoFranceClient.isValidAppId(mfAppId),
+                    isError = mfAppId.isNotBlank() &&
+                        !MeteoFranceClient.isValidAppId(mfAppId) && !MeteoFranceClient.isJwt(mfAppId),
                     visualTransformation = if (mfReveal) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
@@ -461,17 +462,24 @@ private fun SettingsScreen(tick: Int) {
                     ) { Text("Effacer") }
                 }
                 Button(
-                    enabled = !mfBusy && MeteoFranceClient.isValidAppId(mfAppId),
+                    enabled = !mfBusy && (MeteoFranceClient.isValidAppId(mfAppId) || MeteoFranceClient.isJwt(mfAppId)),
                     onClick = {
                         val id = MeteoFranceClient.normalizeAppId(mfAppId)
-                        Storage.saveMeteoFranceAppId(ctx, id)
-                        mfAppId = id
+                        val pastedToken = MeteoFranceClient.isJwt(id)
+                        if (pastedToken) {
+                            // Jeton déjà généré (valable 1 h) : test rapide, sans identifiant d'application.
+                            Storage.saveMeteoFranceToken(ctx, id, System.currentTimeMillis() + 55 * 60_000L)
+                            mfAppId = Storage.meteoFranceAppId(ctx)
+                        } else {
+                            Storage.saveMeteoFranceAppId(ctx, id)
+                            mfAppId = id
+                        }
                         mfBusy = true
                         mfLines = emptyList()
                         val url = mfUrl
                         scope.launch {
                             mfLines = withContext(Dispatchers.IO) {
-                                runCatching { MeteoFranceClient.test(ctx, url) }.getOrElse {
+                                runCatching { MeteoFranceClient.test(ctx, url, useStoredToken = pastedToken) }.getOrElse {
                                     listOf(MeteoFranceClient.TestLine("Test impossible · " + MeteoFranceClient.describe(it), false))
                                 }
                             }
