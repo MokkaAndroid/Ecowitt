@@ -36,9 +36,15 @@ class ChartColors(
     val warm: Int,
     val cold: Int,
     val warn: Int,
+    val wind: Int,
+    val humid: Int,
+    val pressure: Int,
+    val sun: Int,
+    val good: Int,
 ) {
     fun of(tone: Tone): Int = when (tone) {
         Tone.NORMAL -> text
+        Tone.DIM -> muted
         Tone.ACCENT -> accent
         Tone.RAIN -> rain
         Tone.SNOW -> snow
@@ -46,6 +52,11 @@ class ChartColors(
         Tone.WARM -> warm
         Tone.COLD -> cold
         Tone.WARN -> warn
+        Tone.WIND -> wind
+        Tone.HUMID -> humid
+        Tone.PRESSURE -> pressure
+        Tone.SUN -> sun
+        Tone.GOOD -> good
     }
 
     companion object {
@@ -55,11 +66,16 @@ class ChartColors(
             grid = p.muted.copy(alpha = 0.25f).toArgb(),
             accent = p.accent.toArgb(),
             rain = p.rain.toArgb(),
-            snow = if (p.isLight) 0xFF0EA5E9.toInt() else 0xFFE0F2FE.toInt(),
+            snow = if (p.isLight) 0xFF0EA5E9.toInt() else 0xFFBFE3F2.toInt(),
             ice = p.rain.toArgb(),
             warm = if (p.isLight) 0xFFEA580C.toInt() else 0xFFFDBA74.toInt(),
             cold = if (p.isLight) 0xFF0284C7.toInt() else 0xFF7DD3FC.toInt(),
             warn = p.warn.toArgb(),
+            wind = if (p.isLight) 0xFF6D5BD0.toInt() else 0xFFB3A4FF.toInt(),
+            humid = if (p.isLight) 0xFF0284C7.toInt() else 0xFF6CC4F5.toInt(),
+            pressure = if (p.isLight) 0xFFA16207.toInt() else 0xFFE7C46B.toInt(),
+            sun = if (p.isLight) 0xFFCA8A04.toInt() else 0xFFFFD166.toInt(),
+            good = if (p.isLight) 0xFF16A34A.toInt() else 0xFF5FD08A.toInt(),
         )
     }
 }

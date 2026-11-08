@@ -85,7 +85,7 @@ object EcowittClient {
     }
 
     private const val BASE_GROUPS = "outdoor,pressure"
-    private const val EXT_GROUPS = "outdoor,pressure,wind,rainfall"
+    private const val EXT_GROUPS = "outdoor,pressure,wind,rainfall,indoor"
 
     /** Cherche la station dans le compte pour en tirer sa position (latitude / longitude). */
     fun fetchStationLocation(c: Credentials): Location? {

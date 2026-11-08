@@ -56,6 +56,10 @@ enum class WidgetTheme(
     @get:DrawableRes
     val card: Int get() = if (isLight) R.drawable.card_light else R.drawable.card_dark
 
+    /** Fond des tuiles teintées de glace (la limite de neige atteint ton altitude). */
+    @get:DrawableRes
+    val cardIce: Int get() = if (isLight) R.drawable.card_ice_light else R.drawable.card_ice_dark
+
     companion object {
         fun fromName(name: String?): WidgetTheme? = entries.firstOrNull { it.name == name }
     }

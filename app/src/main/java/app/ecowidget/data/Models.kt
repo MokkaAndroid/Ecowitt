@@ -77,6 +77,7 @@ data class Derived(
     val dewSeries: List<SeriesPoint> = emptyList(),
     /** Cumul de pluie du jour mesuré par la station (remis à zéro à minuit). */
     val rainDaySeries: List<SeriesPoint> = emptyList(),
+    val indoorTempSeries: List<SeriesPoint> = emptyList(),
 )
 
 data class MetricValue(

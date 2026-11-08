@@ -1,5 +1,6 @@
 package app.ecowidget.data
 
+import app.ecowidget.R
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -19,49 +20,246 @@ object DetailBuilder {
     private const val H = 3600L
     private const val DASH = "—"
 
-    // ───────────────────────────── Tuiles ─────────────────────────────
+    // ───────────────────────────── Tuiles (maquette « H ») ─────────────────────────────
 
+    /** Première pluie des 24 h à venir, et premier moment où elle tombe en neige. */
+    private class Episode(val first: Long?, val firstSnow: Long?, val firstIsSnow: Boolean)
+
+    private fun episode(i: DetailInputs): Episode? {
+        val prec = hourly(i, "precipitation", i.nowSec + 1, i.nowSec + 24 * H)
+        if (prec.isEmpty()) return null
+        val temps = hourlyMap(i, "temperature_2m")
+        val snowH = hourlyMap(i, "snowfall_height")
+        val frz = hourlyMap(i, "freezing_level_height")
+        var first: Long? = null
+        var firstSnow: Long? = null
+        var firstTone = Tone.RAIN
+        for ((t, mm) in prec) {
+            if (mm < 0.1) continue
+            val tone = precipTone(i.altM, t, temps, snowH, frz)
+            if (first == null) {
+                first = t - H
+                firstTone = tone
+            }
+            if (tone == Tone.SNOW && firstSnow == null) firstSnow = t - H
+        }
+        return Episode(first, firstSnow, firstTone == Tone.SNOW)
+    }
+
+    /** « 17 h », « 17 h 45 ». */
+    private fun hm(sec: Long, zone: ZoneId): String {
+        val z = Instant.ofEpochSecond(sec).atZone(zone)
+        return if (z.minute == 0) "${z.hour} h" else "${z.hour} h " + String.format(Locale.ROOT, "%02d", z.minute)
+    }
+
+    private fun sameDay(a: Long, b: Long, zone: ZoneId): Boolean =
+        Instant.ofEpochSecond(a).atZone(zone).toLocalDate() == Instant.ofEpochSecond(b).atZone(zone).toLocalDate()
+
+    /** Pastille de l'en-tête : « Pluie 17 h 45 · neige 5 h », « Sec jusqu'à demain », « Il pleut ». Null sans prévisions. */
+    fun alert(i: DetailInputs): Alert? {
+        val f = i.forecast
+        if (i.snap?.isRaining == true) {
+            val end = f?.rainEndMin
+            return Alert(if (end != null) "Il pleut · fin dans " + OmFormat.delay(end) else "Il pleut", true)
+        }
+        val ep = episode(i) ?: return null
+        val first = ep.first ?: return Alert("Sec sur 24 h", false)
+        val nextMin = f?.nextRainMin
+        // Quand la pluie est proche, l'heure vient du modèle à 15 min (AROME) ; sinon de la prévision horaire.
+        val start = if (nextMin != null && nextMin in 1..120) i.nowSec + nextMin * 60L else first
+        if (!sameDay(start, i.nowSec, i.zone)) return Alert("Sec jusqu'à demain", false)
+        val verb = if (ep.firstIsSnow) "Neige" else "Pluie"
+        if (start <= i.nowSec + 300) return Alert("$verb imminente", true)
+        var text = "$verb ${hm(start, i.zone)}"
+        val sn = ep.firstSnow
+        if (!ep.firstIsSnow && sn != null) {
+            text += " · neige " + (if (sameDay(sn, i.nowSec, i.zone)) "" else "demain ") + hm(sn, i.zone)
+        }
+        return Alert(text, true)
+    }
+
+    /** Les tuiles, dans l'ordre des maquettes : Extérieur (large), Prévision, Pluie / Vent, Humidité, Pression, Limite neige / Demain, Coucher, Air, Intérieur. */
     fun summaries(i: DetailInputs): List<TileSummary> {
         val s = i.snap
         val f = i.forecast
-        return Tile.entries.map { t ->
-            when (t) {
-                Tile.TEMP -> TileSummary(
-                    t, s?.outdoorTemp?.let { Metric.fmt(it, 1) + "°" } ?: DASH, t.short, t.icon,
-                    colorTemp = s?.outdoorTemp,
-                )
-                Tile.RAIN -> if (s?.isRaining == true) {
-                    TileSummary(t, s.rainRate?.let { Metric.fmt(it, 1) + " mm/h" } ?: "En cours", "Il pleut", t.icon, Tone.RAIN)
-                } else {
-                    TileSummary(t, s?.rainDaily?.let { Metric.fmt(it, 1) + " mm" } ?: DASH, t.short, t.icon)
-                }
-                Tile.SNOW -> {
-                    val limit = limitSeries(i, 1).firstOrNull()?.second
-                    val mine = i.altM
-                    val low = limit != null && mine != null && limit <= mine
-                    TileSummary(t, limit?.let { hundreds(it).toString() + " m" } ?: DASH, t.short, t.icon, if (low) Tone.SNOW else Tone.NORMAL)
-                }
-                Tile.WIND -> TileSummary(
-                    t, s?.windSpeed?.let { Metric.fmt(it, 0) + " km/h" } ?: DASH,
-                    "Vent" + (s?.windDir?.let { " " + Metric.cardinal(it) } ?: ""), t.icon,
-                )
-                Tile.HUM -> TileSummary(t, s?.humidity?.let { Metric.fmt(it, 0) + "%" } ?: DASH, t.short, t.icon)
-                Tile.PRESS -> {
-                    val glyph = when (Metric.trendOf(i.derived?.pressTrend3h, 1.0)) {
-                        1 -> " ▲"
-                        -1 -> " ▼"
-                        else -> ""
-                    }
-                    TileSummary(t, s?.pressure?.let { Metric.fmt(it, 0) + glyph } ?: DASH, "hPa", t.icon)
-                }
-                Tile.FORECAST -> {
-                    val hi = f?.dayMax
-                    val lo = f?.dayMin
-                    val text = if (hi != null && lo != null) Metric.fmt(hi, 0) + "°/" + Metric.fmt(lo, 0) + "°" else DASH
-                    TileSummary(t, text, t.short, if (f != null) WeatherCodes.icon(f.code, f.isDay ?: true) else t.icon)
-                }
-            }
-        }
+        val d = i.derived
+        val now = i.nowSec
+        val alt = i.altM
+        val ep = episode(i)
+        val first = ep?.first
+        val raining = s?.isRaining == true
+        val wetToday = first != null && sameDay(first, now, i.zone)
+
+        val out = ArrayList<TileSummary>()
+
+        // Extérieur
+        out.add(
+            TileSummary(
+                tile = Tile.TEMP, label = "Extérieur", short = "Temp.",
+                value = s?.outdoorTemp?.let { Metric.fmt(it, 1) } ?: DASH, unit = "°",
+                icon = Tile.TEMP.icon, iconTone = Tone.ACCENT,
+                colorTemp = s?.outdoorTemp,
+                trend = Metric.trendOf(d?.tempTrend1h, 0.2),
+                side = listOf(
+                    "max" to deg(d?.dayMax),
+                    "min" to deg(d?.dayMin),
+                    "ress." to (s?.feelsLike?.let { Metric.fmt(it, 0) + "°" } ?: DASH),
+                ),
+                wide = true,
+            ),
+        )
+
+        // Prévision
+        val hi = f?.dayMax
+        val lo = f?.dayMin
+        out.add(
+            TileSummary(
+                tile = Tile.FORECAST, label = "Prévision", short = "Prévis.",
+                value = if (hi != null && lo != null) Metric.fmt(hi, 0) + "°/" + Metric.fmt(lo, 0) + "°" else DASH,
+                sub = when {
+                    raining -> "il pleut"
+                    wetToday && first != null -> "pluie " + hm(maxOf(first, now), i.zone)
+                    f != null -> WeatherCodes.label(f.code, f.isDay ?: true).lowercase(Locale.FRENCH)
+                    else -> ""
+                },
+                icon = if (raining || wetToday) R.drawable.ic_cloud_rain else if (f != null) WeatherCodes.icon(f.code, f.isDay ?: true) else Tile.FORECAST.icon,
+                iconTone = if (raining || wetToday) Tone.RAIN else Tone.ACCENT,
+            ),
+        )
+
+        // Pluie
+        val today = RainOutlook.today(f?.raw, i.zone)
+        val rainDaily = s?.rainDaily
+        out.add(
+            TileSummary(
+                tile = Tile.RAIN, label = "Pluie", short = "Pluie",
+                value = rainDaily?.let { Metric.fmt(it, 1) } ?: DASH, unit = "mm",
+                sub = when {
+                    raining -> s?.rainRate?.let { Metric.fmt(it, 1) + " mm/h" } ?: "en cours"
+                    today != null && today.expected -> "+" + Metric.fmt(today.totalMm, 1) + " prévus"
+                    today != null -> "rien de prévu"
+                    else -> ""
+                },
+                icon = Tile.RAIN.icon, iconTone = Tone.RAIN,
+                valueTone = if (raining) Tone.RAIN else if (rainDaily == null || rainDaily < 0.05) Tone.DIM else Tone.NORMAL,
+            ),
+        )
+
+        // Vent
+        out.add(
+            TileSummary(
+                tile = Tile.WIND, label = "Vent", short = "Vent" + (s?.windDir?.let { " " + Metric.cardinal(it) } ?: ""),
+                value = s?.windSpeed?.let { Metric.fmt(it, 0) } ?: DASH, unit = "km/h",
+                sub = listOfNotNull(s?.windGust?.let { "raf. " + Metric.fmt(it, 0) }, s?.windDir?.let { Metric.cardinal(it) }).joinToString(" · "),
+                icon = Tile.WIND.icon, iconTone = Tone.WIND,
+            ),
+        )
+
+        // Humidité
+        out.add(
+            TileSummary(
+                tile = Tile.HUM, label = "Humidité", short = "Humidité",
+                value = s?.humidity?.let { Metric.fmt(it, 0) } ?: DASH, unit = "%",
+                sub = s?.dewPoint?.let { "rosée " + Metric.fmt(it, 1) + "°" } ?: "",
+                icon = Tile.HUM.icon, iconTone = Tone.HUMID,
+            ),
+        )
+
+        // Pression
+        val pTrend = Metric.trendOf(d?.pressTrend3h, 1.0)
+        out.add(
+            TileSummary(
+                tile = Tile.PRESS, label = "Pression", short = "hPa",
+                value = s?.pressure?.let { Metric.fmt(it, 0) } ?: DASH,
+                sub = d?.pressTrend3h?.let { signed(it, 1, " / 3 h") } ?: "",
+                icon = Tile.PRESS.icon, iconTone = Tone.PRESSURE,
+                trend = if (pTrend == 1 || pTrend == -1) pTrend else null,
+            ),
+        )
+
+        // Limite neige
+        val lim = limitSeries(i, 24)
+        val limNow = lim.firstOrNull()?.second
+        val lowNow = limNow != null && alt != null && limNow <= alt
+        val cross = if (alt != null) lim.firstOrNull { it.second <= alt && it.first > now } else null
+        out.add(
+            TileSummary(
+                tile = Tile.SNOW, label = "Lim. neige", short = "Neige",
+                value = limNow?.let { hundreds(it).toString() } ?: DASH, unit = if (limNow != null) "m" else "",
+                sub = when {
+                    limNow == null -> ""
+                    lowNow -> "chez toi"
+                    cross != null -> "chez toi " + hm(cross.first, i.zone)
+                    else -> "au-dessus de toi"
+                },
+                icon = Tile.SNOW.icon, iconTone = Tone.SNOW,
+                valueTone = if (limNow != null) Tone.SNOW else Tone.DIM,
+                subTone = if (lowNow || cross != null) Tone.SNOW else Tone.DIM,
+                tinted = lowNow || cross != null,
+            ),
+        )
+
+        // Demain
+        val tmx = daily(i, "temperature_2m_max")
+        val tmn = daily(i, "temperature_2m_min")
+        val maxTom = dayAt(tmx, i, 1)
+        val minTom = dayAt(tmn, i, 1)
+        val snowTom = dayAt(daily(i, "snowfall_sum"), i, 1)
+        val rainTom = dayAt(daily(i, "precipitation_sum"), i, 1)
+        out.add(
+            TileSummary(
+                tile = Tile.TEMP, tab = 2, label = "Demain", short = "Demain",
+                value = if (maxTom != null && minTom != null) Metric.fmt(maxTom, 0) + "°/" + Metric.fmt(minTom, 0) + "°" else DASH,
+                sub = when {
+                    snowTom != null && snowTom >= 0.5 -> "neige " + Metric.fmt(snowTom, 0) + " cm"
+                    rainTom != null && rainTom >= 1.0 -> "pluie " + Metric.fmt(rainTom, 0) + " mm"
+                    rainTom != null -> "sec"
+                    else -> ""
+                },
+                icon = R.drawable.ic_calendar, iconTone = Tone.ACCENT,
+            ),
+        )
+
+        // Coucher (ou lever demain une fois le soleil couché)
+        val sunset = f?.sunsetSec
+        val sunriseTom = dayAt(daily(i, "sunrise"), i, 1)?.toLong()
+        val afterSunset = sunset != null && now > sunset
+        val uvMax = dayAt(daily(i, "uv_index_max"), i, 0)
+        out.add(
+            TileSummary(
+                tile = Tile.SUN, label = if (afterSunset) "Lever" else "Coucher", short = "Soleil",
+                value = (if (afterSunset) sunriseTom else sunset)?.let { OmFormat.hhmm(it) } ?: DASH,
+                sub = uvMax?.let { "UV max " + Metric.fmt(it, 1) } ?: "",
+                icon = R.drawable.ic_sunset, iconTone = Tone.SUN,
+            ),
+        )
+
+        // Air
+        val aqi = f?.let { OmCatalog.byId("air.european_aqi")?.read(it, s) }
+        val pollen = f?.let { OmCatalog.byId(OmCatalog.POLLEN_MAX)?.read(it, s) }
+        val aqiOk = aqi != null && aqi.value != Metric.MISSING.value
+        val band = aqi?.unit?.removePrefix("·")?.trim()?.lowercase(Locale.FRENCH).orEmpty()
+        val pollenText = pollen?.takeIf { it.value != Metric.MISSING.value }?.let { "pollens " + it.value }
+        out.add(
+            TileSummary(
+                tile = Tile.AIR, label = "Air", short = "Air",
+                value = if (aqiOk && aqi != null) aqi.value else DASH,
+                sub = listOfNotNull(band.takeIf { it.isNotEmpty() && aqiOk }, pollenText).joinToString(" · "),
+                icon = R.drawable.ic_leaf, iconTone = Tone.GOOD,
+                valueTone = if (!aqiOk) Tone.DIM else if (aqi?.highlight == true) Tone.WARN else Tone.GOOD,
+            ),
+        )
+
+        // Intérieur
+        out.add(
+            TileSummary(
+                tile = Tile.INDOOR, label = "Intérieur", short = "Intérieur",
+                value = s?.indoorTemp?.let { Metric.fmt(it, 1) } ?: DASH, unit = "°",
+                sub = s?.indoorHumidity?.let { Metric.fmt(it, 0) + " %" } ?: "",
+                icon = R.drawable.ic_home, iconTone = Tone.DIM,
+            ),
+        )
+        return out
     }
 
     fun fiche(tile: Tile, i: DetailInputs): Fiche = when (tile) {
@@ -72,6 +270,83 @@ object DetailBuilder {
         Tile.HUM -> humFiche(i)
         Tile.PRESS -> pressFiche(i)
         Tile.FORECAST -> forecastFiche(i)
+        Tile.SUN -> sunFiche(i)
+        Tile.AIR -> airFiche(i)
+        Tile.INDOOR -> indoorFiche(i)
+    }
+
+    // ───────────────────────────── Soleil, air, intérieur ─────────────────────────────
+
+    private fun sunFiche(i: DetailInputs): Fiche {
+        val now = i.nowSec
+        val f = i.forecast
+        val s = i.snap
+        val uv = hourly(i, "uv_index", now - 3599, now + 24 * H)
+        val uvMax = dayAt(daily(i, "uv_index_max"), i, 0)
+        val page = DetailPage(
+            "UV",
+            listOf(
+                Stat("Lever", f?.sunriseSec?.let { OmFormat.hhmm(it) } ?: DASH, Tone.SUN),
+                Stat("Coucher", f?.sunsetSec?.let { OmFormat.hhmm(it) } ?: DASH, Tone.SUN),
+                Stat("UV max du jour", num(uvMax, 1, "")),
+                Stat("Ensoleillement", num(s?.solar, 0, " W/m²")),
+            ),
+            if (uv.size < 2) null else LineChart(
+                listOf(LineSeries(uv, Tone.SUN, fill = true)), uv.first().first, uv.last().first,
+                hourTicks(uv.first().first, uv.last().first, 6, i.zone), nowSec = now, minSpan = 3.0,
+            ),
+            if (uv.size < 2) "Indice UV indisponible." else "Indice UV prévu sur 24 h.",
+        )
+        return Fiche(Tile.SUN, listOf(page))
+    }
+
+    private fun airFiche(i: DetailInputs): Fiche {
+        val now = i.nowSec
+        val f = i.forecast
+        val s = i.snap
+        val aqi = f?.let { OmCatalog.byId("air.european_aqi")?.read(it, s) }
+        val pollen = f?.let { OmCatalog.byId(OmCatalog.POLLEN_MAX)?.read(it, s) }
+        val series = f?.air?.hourlySeries("european_aqi").orEmpty()
+            .mapNotNull { p -> p.second?.let { p.first to it } }
+            .filter { it.first in (now - 3599)..(now + 24 * H) }
+        val ok = aqi != null && aqi.value != Metric.MISSING.value
+        val page = DetailPage(
+            "Air",
+            listOf(
+                Stat("Indice européen", if (ok && aqi != null) aqi.value else DASH, if (ok) Tone.GOOD else Tone.DIM),
+                Stat("Niveau", aqi?.unit?.removePrefix("·")?.trim()?.ifEmpty { DASH } ?: DASH),
+                Stat("Pollens", pollen?.takeIf { it.value != Metric.MISSING.value }?.value ?: DASH),
+                Stat("Maxi 24 h", num(series.maxOfOrNull { it.second }, 0, "")),
+            ),
+            if (series.size < 2) null else LineChart(
+                listOf(LineSeries(series, Tone.GOOD, fill = true)), series.first().first, series.last().first,
+                hourTicks(series.first().first, series.last().first, 6, i.zone), nowSec = now, minSpan = 20.0,
+            ),
+            if (series.size < 2) "Qualité de l'air indisponible pour le moment." else "Indice européen : 0–20 bon, 20–40 correct, 40–60 moyen, au-delà médiocre à mauvais.",
+        )
+        return Fiche(Tile.AIR, listOf(page))
+    }
+
+    private fun indoorFiche(i: DetailInputs): Fiche {
+        val now = i.nowSec
+        val s = i.snap
+        val ind = i.derived?.indoorTempSeries.orEmpty().filter { it.tSec >= now - 24 * H }.map { it.tSec to it.v }
+        val gap = if (s?.indoorTemp != null && s.outdoorTemp != null) s.indoorTemp - s.outdoorTemp else null
+        val page = DetailPage(
+            "Intérieur",
+            listOf(
+                Stat("Température", deg(s?.indoorTemp), Tone.ACCENT),
+                Stat("Humidité", num(s?.indoorHumidity, 0, " %")),
+                Stat("Écart extérieur", signed(gap, 1, "°")),
+                Stat("Maxi 24 h", deg(ind.maxOfOrNull { it.second })),
+            ),
+            if (ind.size < 2) null else LineChart(
+                listOf(LineSeries(ind, Tone.WARM, fill = true)), now - 24 * H, now + 1800,
+                hourTicks(now - 24 * H, now + 1800, 6, i.zone), nowSec = now, minSpan = 2.0,
+            ),
+            if (ind.size < 2) "Pas encore d'historique de la température intérieure." else null,
+        )
+        return Fiche(Tile.INDOOR, listOf(page))
     }
 
     // ───────────────────────────── Température ─────────────────────────────

@@ -41,16 +41,15 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import app.ecowidget.data.Alert
 import app.ecowidget.data.CachedState
 import app.ecowidget.data.DetailBuilder
 import app.ecowidget.data.DetailInputs
-import app.ecowidget.data.Metric
 import app.ecowidget.data.Stat
 import app.ecowidget.data.Storage
 import app.ecowidget.data.Tile
 import app.ecowidget.data.TileSummary
 import app.ecowidget.data.Tone
-import app.ecowidget.data.WeatherCodes
 import app.ecowidget.data.WidgetConfig
 import app.ecowidget.data.WidgetMode
 import app.ecowidget.ui.DetailActivity
@@ -86,8 +85,6 @@ class CloseTileCallback : ActionCallback {
 // Hauteurs (dp) servant à décider de la mise en page.
 private const val PAD_X = 10
 private const val PAD_Y = 8
-private const val HEAD_H = 30f
-private const val TILE_H = 52f
 private const val GAP = 4f
 private const val DETAIL_HEAD_H = 28f
 
@@ -155,6 +152,17 @@ internal fun CompactBody(
 
 // ───────────────────────────── Tuiles ─────────────────────────────
 
+private const val HEADER_H = 18f
+private const val HEADER_GAP = 8f
+private const val TILE_GAP = 6f
+
+/** Au moins cette hauteur de tuile (dp) pour la grille des maquettes ; en dessous, une seule rangée de petites tuiles. */
+private const val FULL_MIN_TILE_H = 54f
+private const val FULL_MAX_TILE_H = 96f
+
+/** Les tuiles de la rangée basse, dans l'ordre. */
+private val SHORT_TILES = listOf(Tile.TEMP, Tile.RAIN, Tile.SNOW, Tile.WIND, Tile.HUM, Tile.PRESS, Tile.FORECAST)
+
 @Composable
 private fun TilesView(
     appWidgetId: Int,
@@ -166,88 +174,250 @@ private fun TilesView(
 ) {
     val p = config.theme
     val snap = inputs.snap ?: return
-    val f = inputs.forecast
     val size = LocalSize.current
     val availW = size.width.value - 2f * PAD_X
     val availH = size.height.value - 2f * PAD_Y
     val raining = snap.isRaining == true
     val accent = if (raining) p.rain else TempColors.forTemp(snap.outdoorTemp, p.isLight, p.accent)
     val status = statusOf(state, config.showTime)
-
-    // Très bas (1 case de haut) : seulement la rangée de tuiles, sans l'en-tête.
-    val showHeader = availH >= HEAD_H + GAP + TILE_H
-    val tileH = if (showHeader) TILE_H else minOf(TILE_H, availH)
-    val rows = if (availH >= HEAD_H + GAP + TILE_H + GAP + TILE_H) 2 else 1
     val summaries = DetailBuilder.summaries(inputs)
-    val perRow = if (rows == 2) (summaries.size + 1) / 2 else (availW / 46f).toInt().coerceIn(3, summaries.size)
-    val shown = summaries.take(rows * perRow)
+    val alert = DetailBuilder.alert(inputs)
+
+    // Hauteur disponible pour la grille, une fois l'en-tête posé.
+    val gridH = availH - HEADER_H - HEADER_GAP
+    val fullRows = if (gridH >= 3f * 56f + 2f * TILE_GAP) 3 else 2
+    val fullTileH = ((gridH - (fullRows - 1) * TILE_GAP) / fullRows).coerceAtMost(FULL_MAX_TILE_H)
+    val full = fullTileH >= FULL_MIN_TILE_H && availW >= 240f
+
+    fun open(s: TileSummary): Action = if (inlineMode) {
+        actionRunCallback<OpenTileCallback>(actionParametersOf(KEY_TILE to s.tile.id, KEY_TAB to s.tab.toString()))
+    } else {
+        detailAction(s.tile.id, s.tab, appWidgetId)
+    }
 
     Column(modifier = GlanceModifier.fillMaxSize()) {
-        // En-tête : météo du moment, température, lieu et heure.
-        if (showHeader) Row(modifier = GlanceModifier.fillMaxWidth().height(HEAD_H.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (f != null) {
-                Image(
-                    provider = ImageProvider(WeatherCodes.icon(f.code, f.isDay ?: true)),
-                    contentDescription = null,
-                    modifier = GlanceModifier.size(22.dp),
-                    colorFilter = ColorFilter.tint(ColorProvider(accent)),
-                )
-                Spacer(modifier = GlanceModifier.width(6.dp))
-            }
-            Text(
-                text = snap.outdoorTemp?.let { Metric.fmt(it, 1) + "°" } ?: "—",
-                style = TextStyle(color = ColorProvider(accent), fontSize = 24.sp, fontWeight = FontWeight.Bold),
-                maxLines = 1,
-            )
-            Spacer(modifier = GlanceModifier.width(8.dp))
-            Column(modifier = GlanceModifier.defaultWeight()) {
-                Text(
-                    text = if (f != null) WeatherCodes.label(f.code, f.isDay ?: true) else "Ecowidget",
-                    style = TextStyle(color = ColorProvider(p.text), fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                )
-                val sub = listOfNotNull(place?.substringBefore(',')?.trim()?.takeIf { it.isNotEmpty() }, status.text.takeIf { it.isNotEmpty() })
-                    .joinToString(" · ")
-                if (sub.isNotEmpty()) {
-                    Text(
-                        text = sub,
-                        style = TextStyle(color = ColorProvider(if (status.warn) p.warn else p.muted), fontSize = 9.sp),
-                        maxLines = 1,
-                    )
+        val shortH = availH - HEADER_H - 4f
+        if (full || shortH >= 40f) {
+            WidgetHeader(p, place, status, alert)
+            Spacer(modifier = GlanceModifier.height((if (full) HEADER_GAP else 4f).dp))
+        }
+        if (full) {
+            val colW = kotlin.math.floor((availW - 3f * TILE_GAP) / 4f)
+            val wideW = 2f * colW + TILE_GAP
+            val used = if (fullRows == 3) summaries.take(11) else summaries.take(7)
+            // 1re rangée : Extérieur (large) + 2 tuiles ; ensuite 4 tuiles par rangée.
+            val lines = listOf(used.take(3), used.drop(3).take(4), used.drop(7).take(4)).filter { it.isNotEmpty() }
+            lines.forEachIndexed { r, line ->
+                if (r > 0) Spacer(modifier = GlanceModifier.height(TILE_GAP.dp))
+                Row(modifier = GlanceModifier.fillMaxWidth()) {
+                    line.forEachIndexed { k, s ->
+                        if (k > 0) Spacer(modifier = GlanceModifier.width(TILE_GAP.dp))
+                        if (s.wide) {
+                            WideTile(p, s, accent, wideW, fullTileH, open(s))
+                        } else {
+                            RichTile(p, s, colW, fullTileH, open(s))
+                        }
+                    }
                 }
             }
-        }
-        if (showHeader) Spacer(modifier = GlanceModifier.height(GAP.dp))
-        shown.chunked(perRow).forEachIndexed { r, line ->
-            if (r > 0) Spacer(modifier = GlanceModifier.height(GAP.dp))
+        } else {
+            // Format bas : une seule rangée de petites tuiles (icône, valeur, libellé).
+            val shown = summaries.filter { it.tab == 0 && it.tile in SHORT_TILES }.sortedBy { it.tile.ordinal }
+            val tileH = minOf(56f, if (shortH >= 40f) shortH else availH)
+            val perRow = minOf(shown.size, maxOf(3, (availW / 46f).toInt()))
             Row(modifier = GlanceModifier.fillMaxWidth()) {
-                line.forEach { s ->
-                    val action: Action = if (inlineMode) {
-                        actionRunCallback<OpenTileCallback>(actionParametersOf(KEY_TILE to s.tile.id, KEY_TAB to "0"))
-                    } else {
-                        detailAction(s.tile.id, 0, appWidgetId)
-                    }
-                    TileCell(p, s, accent, action, tileH, GlanceModifier.defaultWeight())
+                shown.take(perRow).forEach { s ->
+                    ShortTile(p, s, accent, open(s), tileH, GlanceModifier.defaultWeight())
                 }
             }
         }
     }
 }
 
+/** En-tête : « Lieu · heure » à gauche, pastille d'alerte et actualisation à droite. */
 @Composable
-private fun TileCell(p: WidgetTheme, s: TileSummary, accent: Color, action: Action, heightDp: Float, modifier: GlanceModifier) {
+private fun WidgetHeader(p: WidgetTheme, place: String?, status: Status, alert: Alert?) {
+    val left = listOfNotNull(
+        place?.substringBefore(',')?.trim()?.takeIf { it.isNotEmpty() },
+        status.text.takeIf { it.isNotEmpty() },
+    ).joinToString(" · ")
+    Row(
+        modifier = GlanceModifier.fillMaxWidth().height(HEADER_H.dp).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = left,
+            style = TextStyle(color = ColorProvider(if (status.warn) p.warn else p.muted), fontSize = 11.sp),
+            maxLines = 1,
+            modifier = GlanceModifier.defaultWeight(),
+        )
+        if (alert != null) {
+            val fg = toneColor(p, if (alert.rain) Tone.COLD else Tone.GOOD)
+            Row(
+                modifier = GlanceModifier
+                    .background(ImageProvider(if (alert.rain) R.drawable.pill_rain else R.drawable.pill_ok))
+                    .padding(start = 7.dp, end = 9.dp, top = 2.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Image(
+                    provider = ImageProvider(if (alert.rain) R.drawable.ic_cloud_rain else R.drawable.ic_check),
+                    contentDescription = null,
+                    modifier = GlanceModifier.size(12.dp),
+                    colorFilter = ColorFilter.tint(ColorProvider(fg)),
+                )
+                Spacer(modifier = GlanceModifier.width(4.dp))
+                Text(
+                    text = alert.text,
+                    style = TextStyle(color = ColorProvider(fg), fontSize = 11.sp, fontWeight = FontWeight.Medium),
+                    maxLines = 1,
+                )
+            }
+            Spacer(modifier = GlanceModifier.width(8.dp))
+        }
+        Box(modifier = GlanceModifier.size(20.dp).clickable(actionRunCallback<RefreshCallback>()), contentAlignment = Alignment.Center) {
+            Image(
+                provider = ImageProvider(R.drawable.ic_refresh),
+                contentDescription = null,
+                modifier = GlanceModifier.size(14.dp),
+                colorFilter = ColorFilter.tint(ColorProvider(p.muted)),
+            )
+        }
+    }
+}
+
+/** Tuile des maquettes : libellé et icône en haut, valeur au milieu, sous-ligne en bas. */
+@Composable
+private fun RichTile(p: WidgetTheme, s: TileSummary, w: Float, h: Float, action: Action) {
+    Box(
+        modifier = GlanceModifier
+            .width(w.dp).height(h.dp)
+            .background(ImageProvider(if (s.tinted) p.cardIce else p.card))
+            .clickable(action),
+    ) {
+        Column(modifier = GlanceModifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 7.dp)) {
+            TileLabel(p, s)
+            Spacer(modifier = GlanceModifier.defaultWeight())
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = s.value,
+                    style = TextStyle(color = ColorProvider(toneColor(p, s.valueTone)), fontSize = 15.sp, fontWeight = FontWeight.Medium),
+                    maxLines = 1,
+                )
+                if (s.unit.isNotEmpty()) {
+                    Text(
+                        text = " " + s.unit,
+                        style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
+                        maxLines = 1,
+                    )
+                }
+                if (s.trend == 1 || s.trend == -1) {
+                    Text(
+                        text = if (s.trend == 1) " ▲" else " ▼",
+                        style = TextStyle(color = ColorProvider(p.warn), fontSize = 9.sp),
+                        maxLines = 1,
+                    )
+                }
+            }
+            Spacer(modifier = GlanceModifier.defaultWeight())
+            Text(
+                text = s.sub.ifEmpty { " " },
+                style = TextStyle(color = ColorProvider(toneColor(p, s.subTone)), fontSize = 10.sp),
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TileLabel(p: WidgetTheme, s: TileSummary) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            provider = ImageProvider(s.icon),
+            contentDescription = null,
+            modifier = GlanceModifier.size(13.dp),
+            colorFilter = ColorFilter.tint(ColorProvider(toneColor(p, s.iconTone))),
+        )
+        Spacer(modifier = GlanceModifier.width(4.dp))
+        Text(
+            text = s.label,
+            style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
+            maxLines = 1,
+        )
+    }
+}
+
+/** Grande tuile Extérieur : température colorée à gauche, max / min / ressenti à droite. */
+@Composable
+private fun WideTile(p: WidgetTheme, s: TileSummary, accent: Color, w: Float, h: Float, action: Action) {
+    val tempColor = TempColors.forTemp(s.colorTemp, p.isLight, accent)
+    val big = if (h >= 64f) 28 else 24
+    Box(
+        modifier = GlanceModifier.width(w.dp).height(h.dp).background(ImageProvider(p.card)).clickable(action),
+    ) {
+        Row(
+            modifier = GlanceModifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                TileLabel(p, s)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = s.valueText(),
+                        style = TextStyle(color = ColorProvider(tempColor), fontSize = big.sp, fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                    )
+                    if (s.trend == 1 || s.trend == -1) {
+                        Text(
+                            text = if (s.trend == 1) " ▲" else " ▼",
+                            style = TextStyle(
+                                color = ColorProvider(toneColor(p, if (s.trend == 1) Tone.WARM else Tone.COLD)),
+                                fontSize = 10.sp,
+                            ),
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                s.side.forEach { (label, value) ->
+                    Row {
+                        Text(
+                            text = "$label ",
+                            style = TextStyle(color = ColorProvider(p.muted), fontSize = 11.sp),
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = value,
+                            style = TextStyle(
+                                color = ColorProvider(if (label == "ress.") p.muted else p.text),
+                                fontSize = 11.sp,
+                                fontWeight = if (label == "ress.") FontWeight.Normal else FontWeight.Medium,
+                            ),
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Petite tuile du format bas : icône, valeur, libellé court. */
+@Composable
+private fun ShortTile(p: WidgetTheme, s: TileSummary, accent: Color, action: Action, heightDp: Float, modifier: GlanceModifier) {
     val valueColor = if (s.colorTemp != null) {
         TempColors.forTemp(s.colorTemp, p.isLight, p.text)
     } else {
-        toneColor(p, s.tone)
+        toneColor(p, s.valueTone)
     }
-    val iconColor = if (s.tone == Tone.NORMAL) accent else toneColor(p, s.tone)
+    val iconColor = if (s.iconTone == Tone.ACCENT) accent else toneColor(p, s.iconTone)
+    val text = if (s.unit.startsWith("°") || s.unit == "%") s.value + s.unit else s.value
     Box(
         modifier = modifier.height(heightDp.dp).padding(horizontal = 2.dp).clickable(action),
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            modifier = GlanceModifier.fillMaxSize().background(ImageProvider(p.card)).padding(vertical = 4.dp),
+            modifier = GlanceModifier.fillMaxSize().background(ImageProvider(if (s.tinted) p.cardIce else p.card)).padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -258,12 +428,12 @@ private fun TileCell(p: WidgetTheme, s: TileSummary, accent: Color, action: Acti
                 colorFilter = ColorFilter.tint(ColorProvider(iconColor)),
             )
             Text(
-                text = s.value,
+                text = text,
                 style = TextStyle(color = ColorProvider(valueColor), fontSize = 12.sp, fontWeight = FontWeight.Bold),
                 maxLines = 1,
             )
             Text(
-                text = s.label,
+                text = s.short,
                 style = TextStyle(color = ColorProvider(p.muted), fontSize = 8.sp),
                 maxLines = 1,
             )

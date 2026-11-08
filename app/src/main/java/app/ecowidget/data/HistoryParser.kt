@@ -71,6 +71,7 @@ object HistoryParser {
             humSeries = series(data, "outdoor", "humidity"),
             dewSeries = series(data, "outdoor", "dew_point"),
             rainDaySeries = series(data, "rainfall", "daily"),
+            indoorTempSeries = series(data, "indoor", "temperature"),
         )
     }
 

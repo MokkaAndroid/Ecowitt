@@ -143,7 +143,7 @@ private fun DetailScreen(
     val colors = remember(theme) { ChartColors.of(theme) }
     val fiche = remember(tile, inputs) { DetailBuilder.fiche(tile, inputs) }
     val page = fiche.pages[tab.coerceIn(0, fiche.pages.size - 1)]
-    val summaries = remember(inputs) { DetailBuilder.summaries(inputs) }
+    val summaries = remember(inputs) { DetailBuilder.summaries(inputs).distinctBy { it.tile } }
 
     val density = LocalDensity.current.density
     val screenW = LocalConfiguration.current.screenWidthDp
@@ -209,7 +209,7 @@ private fun DetailScreen(
                             colorFilter = ColorFilter.tint(if (selected) theme.accent else theme.muted),
                         )
                         Text(
-                            text = s.value,
+                            text = s.valueText(),
                             color = if (selected) theme.text else theme.muted,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
