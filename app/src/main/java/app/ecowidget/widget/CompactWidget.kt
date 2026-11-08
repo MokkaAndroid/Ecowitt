@@ -2,6 +2,8 @@ package app.ecowidget.widget
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -96,10 +98,15 @@ private const val INLINE_MIN_H = 100f
 @Composable
 private fun detailAction(tile: String, tab: Int, appWidgetId: Int): Action {
     val ctx = LocalContext.current
-    return actionStartActivity(
-        ComponentName(ctx, DetailActivity::class.java),
-        actionParametersOf(KEY_TILE to tile, KEY_TAB to tab.toString(), KEY_WID to appWidgetId.toString()),
-    )
+    // L'adresse rend chaque intention unique : sinon Android pourrait confondre les PendingIntent de deux tuiles.
+    val intent = Intent()
+        .setComponent(ComponentName(ctx, DetailActivity::class.java))
+        .setData(Uri.parse("ecowidget://detail/$tile/$tab/$appWidgetId"))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        .putExtra("tile", tile)
+        .putExtra("tab", tab.toString())
+        .putExtra("wid", appWidgetId.toString())
+    return actionStartActivity(intent)
 }
 
 /** Couleur d'une valeur selon son ton, pour le thème du widget. */
