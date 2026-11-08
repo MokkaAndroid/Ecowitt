@@ -260,6 +260,13 @@ object Storage {
 
     fun saveHistoryError(ctx: Context, message: String?) = putOrRemove(ctx, "history_error", message)
 
+    /** Flèche du widget : true = températures corrigées de l'altitude (défaut), false = valeurs du modèle. */
+    fun altitudeCorrected(ctx: Context): Boolean = plain(ctx).getBoolean("alt_corrected", true)
+
+    fun setAltitudeCorrected(ctx: Context, corrected: Boolean) {
+        plain(ctx).edit().putBoolean("alt_corrected", corrected).apply()
+    }
+
     fun forecastRaw(ctx: Context): String? = plain(ctx).getString("forecast_raw", null)
     fun forecastAt(ctx: Context): Long = plain(ctx).getLong("forecast_at", 0L)
     fun forecastError(ctx: Context): String? = plain(ctx).getString("forecast_error", null)

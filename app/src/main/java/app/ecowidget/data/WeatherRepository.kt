@@ -56,7 +56,12 @@ object WeatherRepository {
         val air = Storage.airRaw(ctx)
             ?.takeIf { nowMs - Storage.airAt(ctx) <= AIR_MAX_AGE_MS }
             ?.let { runCatching { JSONObject(it) }.getOrNull() }
-        return runCatching { ForecastParser.parse(JSONObject(raw), nowMs / 1000, nowcast, air) }.getOrNull()
+        return runCatching {
+            val json = JSONObject(raw)
+            // Températures décalées à l'altitude de l'utilisateur, sauf si la flèche du widget est sur « modèle ».
+            val altitude = AltitudeCorrection.apply(json, Storage.location(ctx)?.elevation, Storage.altitudeCorrected(ctx))
+            ForecastParser.parse(json, nowMs / 1000, nowcast, air).copy(altitude = altitude)
+        }.getOrNull()
     }
 
     // ---------- Actualisation réseau ----------
@@ -143,7 +148,8 @@ object WeatherRepository {
         val needs = currentNeeds(app)
 
         // 1) Prévisions + variables choisies.
-        val sig = needs.forecastSignature()
+        // « |alt1 » : les prévisions sont demandées sans altitude, la correction se fait sur le téléphone.
+        val sig = needs.forecastSignature() + "|alt1"
         if (Storage.forecastSig(app) != sig || due(Storage.forecastAt(app), FORECAST_TTL_MS, force, now)) {
             try {
                 val json = OpenMeteoClient.fetchForecast(loc, needs)

@@ -21,7 +21,7 @@ Widget Android pour station météo **Ecowitt** (conçu pour la HP2564), aliment
 1. Sur [ecowitt.net](https://www.ecowitt.net) → profil → **API Keys** : crée une *Application Key* et une *API Key*.
 2. Récupère l'**adresse MAC** de la console (WS View Plus → liste des appareils, ou ecowitt.net).
 3. Ouvre Ecowidget → saisis les trois valeurs → **Enregistrer et tester**.
-4. La position de la station est récupérée automatiquement pour Open-Meteo (sinon : *Position pour les prévisions* → recherche d'une ville). Renseigne aussi l'**altitude** de la station : elle corrige la température prévue en montagne.
+4. La position de la station est récupérée automatiquement pour Open-Meteo (sinon : *Position pour les prévisions* → recherche d'une ville). Renseigne aussi l'**altitude** de chez toi : la température prévue est corrigée de −0,65 °C par 100 m par rapport au point de prévision, et la flèche ⇄ de la carte prévisions bascule entre valeur corrigée et valeur du modèle.
 5. Bouton **Autoriser les alarmes exactes** (nécessaire pour tenir 2 min).
 6. **Ajouter à l'écran d'accueil**, choisis le thème, les mesures de la station et les informations Open-Meteo. Appui long sur le widget → *Reconfigurer* pour les changer.
 7. En cas de doute sur une donnée : section **Diagnostic** de l'app (état de chaque source) + bouton *Tout actualiser maintenant*.

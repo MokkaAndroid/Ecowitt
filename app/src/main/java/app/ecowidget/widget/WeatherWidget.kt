@@ -66,6 +66,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 class WeatherWidget : GlanceAppWidget() {
 
@@ -91,6 +92,14 @@ class WeatherWidget : GlanceAppWidget() {
 class RefreshCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         WeatherRepository.refresh(context, force = true)
+        WeatherWidget().updateAll(context)
+    }
+}
+
+/** Flèche des prévisions : bascule entre températures corrigées de l'altitude et valeurs brutes du modèle. */
+class ToggleAltitudeCallback : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        Storage.setAltitudeCorrected(context, !Storage.altitudeCorrected(context))
         WeatherWidget().updateAll(context)
     }
 }
@@ -515,7 +524,7 @@ private fun chipValue(m: Metric, v: MetricValue): String =
 // Hauteurs estimées (dp) des blocs du format « sections », marge basse comprise.
 private const val SECTIONS_MIN_H = 270f
 private const val S_HEADER_H = 42f
-private const val S_FCARD_H = 74f
+private const val S_FCARD_H = 78f
 private const val S_HOURS_H = 72f
 private const val S_TILE_ROW_H = 54f
 private const val S_STATION_BASE = 116f
@@ -756,11 +765,35 @@ private fun ForecastCard(
                             maxLines = 1,
                         )
                     }
-                    Text(
-                        text = "max / min",
-                        style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
-                        maxLines = 1,
-                    )
+                    val alt = f.altitude?.takeIf { abs(it.offsetC) >= 0.1 }
+                    if (alt != null) {
+                        // Flèche : corrigé de l'altitude (accent) <-> valeur du modèle (grisé).
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = GlanceModifier
+                                .padding(vertical = 2.dp)
+                                .clickable(actionRunCallback<ToggleAltitudeCallback>()),
+                        ) {
+                            Text(
+                                text = if (alt.applied) "max / min · ${alt.userM.roundToInt()} m" else "max / min · modèle",
+                                style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
+                                maxLines = 1,
+                            )
+                            Spacer(modifier = GlanceModifier.width(4.dp))
+                            Image(
+                                provider = ImageProvider(R.drawable.ic_swap),
+                                contentDescription = "Basculer entre la température corrigée de l'altitude et celle du modèle",
+                                modifier = GlanceModifier.size(12.dp),
+                                colorFilter = ColorFilter.tint(ColorProvider(if (alt.applied) accent else p.muted)),
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "max / min",
+                            style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
         }
@@ -1018,16 +1051,36 @@ private fun WeatherColumn(p: WidgetTheme, accent: Color, f: Forecast, line: Pair
             modifier = GlanceModifier.size(iconDp.dp),
             colorFilter = ColorFilter.tint(ColorProvider(accent)),
         )
-        Text(
-            text = WeatherCodes.label(f.code, day),
-            style = TextStyle(
-                color = ColorProvider(p.text),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.End,
-            ),
-            maxLines = 1,
-        )
+        val alt = f.altitude?.takeIf { abs(it.offsetC) >= 0.1 }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = if (alt != null) {
+                GlanceModifier.padding(vertical = 2.dp).clickable(actionRunCallback<ToggleAltitudeCallback>())
+            } else {
+                GlanceModifier
+            },
+        ) {
+            Text(
+                text = WeatherCodes.label(f.code, day),
+                style = TextStyle(
+                    color = ColorProvider(p.text),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.End,
+                ),
+                maxLines = 1,
+            )
+            if (alt != null) {
+                // Flèche : accent = température corrigée de l'altitude, grisé = valeur du modèle.
+                Spacer(modifier = GlanceModifier.width(4.dp))
+                Image(
+                    provider = ImageProvider(R.drawable.ic_swap),
+                    contentDescription = "Basculer entre la température corrigée de l'altitude et celle du modèle",
+                    modifier = GlanceModifier.size(12.dp),
+                    colorFilter = ColorFilter.tint(ColorProvider(if (alt.applied) accent else p.muted)),
+                )
+            }
+        }
         if (line != null) {
             Text(
                 text = line.first,

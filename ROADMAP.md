@@ -129,6 +129,8 @@ Retour du 08/11 : le rendu B était « très loin » des maquettes ; Mickaël de
 - ✅ Signature stable optionnelle via secrets GitHub (mises à jour sans désinstaller)
 - ✅ APK publié en release « latest » à chaque build (téléchargement direct, sans zip) — v0.5.1
 - ✅ v0.5.2 : « Il pleut » (fond bleu, message) seulement si la station est corroborée (débit ≥ 0,5 mm/h ou humidité ≥ 65 %) ; la barre « maintenant » du graphique suit la station ; ligne de diagnostic « Pluie station » dans les réglages
+- ✅ v0.5.3 : correction d'altitude des températures prévues (−0,65 °C / 100 m entre le point de prévision et l'altitude saisie dans les réglages), flèche ⇄ sur le widget pour basculer corrigé / modèle
+- 🔲 À tester v0.5.3 : saisir l'altitude (685 m), vérifier maxi / mini et heures corrigés, la flèche et le libellé « modèle »
 - 🔲 À tester : clé stable active (secrets en place), installer v0.5.1 puis la suivante par-dessus sans désinstaller
 - ✅ README (installation pas à pas)
 - ⏳ Image d'aperçu dans le sélecteur de widgets

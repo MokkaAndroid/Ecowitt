@@ -198,6 +198,7 @@ private fun SettingsScreen(tick: Int) {
     val exactOk = remember(tick) { UpdateScheduler.canScheduleExact(ctx) }
     val cached = remember(tick, testResult, diagTick) { WeatherRepository.cached(ctx) }
     val diag = remember(tick, testResult, diagTick, location) { diagnostics(ctx) }
+    val altInfo = remember(tick, diagTick, location) { WeatherRepository.forecast(ctx)?.altitude }
     val macValid = mac.isBlank() || Credentials.isValidMac(mac)
     val credsOk = appKey.isNotBlank() && apiKey.isNotBlank() && Credentials.isValidMac(mac)
 
@@ -467,11 +468,18 @@ private fun SettingsScreen(tick: Int) {
                         value = altText,
                         onValueChange = { altText = it.filter { c -> c.isDigit() }.take(4) },
                         label = { Text("Altitude de la station (m)") },
-                        supportingText = { Text("Corrige la température prévue en montagne. Laisse vide pour l'altitude du modèle.") },
+                        supportingText = { Text("Ton altitude. La température prévue est corrigée de −0,65 °C par 100 m par rapport au point de prévision. Laisse vide pour ne pas corriger.") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    altInfo?.let {
+                        Text(
+                            "Point de prévision : ${it.modelM.roundToInt()} m · correction ${java.util.Locale.FRANCE.let { l -> String.format(l, "%+.1f", it.offsetC) }} °C. La flèche des prévisions, sur le widget, bascule entre corrigé et modèle.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     OutlinedButton(
                         onClick = {
                             location?.let { cur ->

@@ -64,7 +64,8 @@ object OpenMeteoClient {
     }
 
     private fun requestForecast(loc: Location, needs: Needs): JSONObject {
-        val b = builder("api.open-meteo.com", "v1/forecast", loc, true)
+        // Sans altitude : valeurs du point de prévision ; la correction d'altitude est faite par [AltitudeCorrection].
+        val b = builder("api.open-meteo.com", "v1/forecast", loc, false)
             .appendQueryParameter("current", (BASE_CURRENT + needs.current).sorted().joinToString(","))
             .appendQueryParameter("hourly", (BASE_HOURLY + needs.hourly).sorted().joinToString(","))
             .appendQueryParameter("daily", (BASE_DAILY + needs.daily).sorted().joinToString(","))
@@ -78,14 +79,13 @@ object OpenMeteoClient {
      * le widget reste utilisable et le diagnostic explique le problème.
      */
     fun fetchForecast(loc: Location, needs: Needs): JSONObject {
-        try {
-            return requestForecast(loc, needs)
+        val json = try {
+            requestForecast(loc, needs)
         } catch (e: OpenMeteoException) {
             if (e.httpCode != 400 || !needs.hasForecastExtras) throw e
-            val json = requestForecast(loc, Needs.EMPTY)
-            json.put(FALLBACK_KEY, e.reason ?: "une variable est refusée")
-            return json
+            requestForecast(loc, Needs.EMPTY).also { it.put(FALLBACK_KEY, e.reason ?: "une variable est refusée") }
         }
+        return json.also { it.put(AltitudeCorrection.RAW_KEY, true) }
     }
 
     /** Pluie à court terme : modèles AROME de Météo-France (pas de 15 min, horizon 6 h, mise à jour horaire). */

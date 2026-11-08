@@ -40,6 +40,8 @@ data class Forecast(
     val hours: List<HourPoint>,
     val raw: RawData?,
     val air: RawData?,
+    /** Correction d'altitude des températures ; null si l'altitude n'est pas renseignée. */
+    val altitude: AltitudeInfo? = null,
 )
 
 /** Correspondance des codes météo WMO utilisés par Open-Meteo. */
