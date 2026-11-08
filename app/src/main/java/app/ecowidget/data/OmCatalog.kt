@@ -211,6 +211,12 @@ object OmCatalog {
 
     const val NEXT_HOURS = "NEXT_HOURS"
     const val RAIN_MESSAGE = "RAIN_MESSAGE"
+    const val POLLEN_MAX = "POLLEN_MAX"
+
+    /** Espèces de pollens de l'API air-quality : « Pollens » affiche la plus élevée. */
+    val POLLEN_VARIABLES = listOf(
+        "alder_pollen", "birch_pollen", "grass_pollen", "mugwort_pollen", "olive_pollen", "ragweed_pollen",
+    )
 
     private val VAR_REGEX = Regex("^[A-Za-z][A-Za-z0-9_]{1,63}$")
 
@@ -273,7 +279,7 @@ object OmCatalog {
                 val delay = f.nextRainMin
                 when {
                     !f.hasNowcast -> Metric.MISSING
-                    delay == null -> MetricValue("Aucune", OmFormat.horizon(f.nowcastHorizonMin))
+                    delay == null -> MetricValue("Aucune", "≤ " + OmFormat.horizon(f.nowcastHorizonMin))
                     delay <= 5 -> MetricValue("En cours", "", highlight = true)
                     else -> MetricValue("dans ${OmFormat.delay(delay)}", "", highlight = delay < 60)
                 }
@@ -412,6 +418,15 @@ object OmCatalog {
         add(aq("mugwort_pollen", po, "Pollen d'armoise", "Armoise", R.drawable.ic_wx_cloud, dec = 0))
         add(aq("olive_pollen", po, "Pollen d'olivier", "Olivier", R.drawable.ic_wx_cloud, dec = 0))
         add(aq("ragweed_pollen", po, "Pollen d'ambroisie", "Ambroisie", R.drawable.ic_wx_cloud, dec = 0))
+        add(
+            OmItem(
+                POLLEN_MAX, po, "Pollens (le plus élevé des six)", "Pollens", R.drawable.ic_wx_cloud,
+                computed = { f, _ ->
+                    val levels = POLLEN_VARIABLES.mapNotNull { f.air?.number(OmSection.HOURLY, it) }
+                    if (levels.isEmpty()) Metric.MISSING else Metric.number(levels.max(), 0, "gr/m³")
+                },
+            ),
+        )
     }
 
     private val index: Map<String, OmItem> = items.associateBy { it.id }
@@ -461,6 +476,10 @@ object OmCatalog {
         val air = HashSet<String>()
         for (id in ids) {
             val item = byId(id) ?: continue
+            if (id == POLLEN_MAX) {
+                air.addAll(POLLEN_VARIABLES)
+                continue
+            }
             if (item.computed != null) continue
             when (item.api) {
                 OmApi.AIR -> air.add(item.variable)

@@ -13,12 +13,17 @@ import app.ecowidget.widget.WidgetTheme
 data class WidgetConfig(
     val theme: WidgetTheme = WidgetTheme.NIGHT,
     /** Mesures de la station (bas du widget). La première est affichée en grand. */
-    val metrics: List<Metric> = listOf(Metric.OUTDOOR_TEMP, Metric.RAIN_NOW, Metric.HUMIDITY),
+    val metrics: List<Metric> = listOf(
+        Metric.OUTDOOR_TEMP, Metric.HUMIDITY, Metric.WIND_SPEED, Metric.RAIN_DAILY, Metric.PRESSURE, Metric.UV, Metric.DEW_POINT,
+    ),
     val showTime: Boolean = true,
     /** Bloc Open-Meteo (haut du widget). */
     val forecastEnabled: Boolean = true,
     /** Identifiants du catalogue Open-Meteo (voir [OmCatalog]). */
-    val forecastMetrics: List<String> = listOf("DAY_RANGE", OmCatalog.RAIN_MESSAGE, "PRECIP_PROB"),
+    val forecastMetrics: List<String> = listOf(
+        "DAY_RANGE", "current.apparent_temperature", OmCatalog.NEXT_HOURS, OmCatalog.RAIN_MESSAGE, "NEXT_RAIN",
+        "current.wind_speed_10m", "current.precipitation", "air.european_aqi", OmCatalog.POLLEN_MAX, "FREEZING_LEVEL",
+    ),
 )
 
 object Storage {
@@ -165,8 +170,22 @@ object Storage {
 
     // ---- Configuration par widget ----
 
+    /** Version de la configuration : la v2 (affichage en cartes) préremplit les infos de la maquette. */
+    private const val CONFIG_VERSION = 2
+
     fun widgetConfig(ctx: Context, appWidgetId: Int): WidgetConfig {
         val p = plain(ctx)
+        val stored = readWidgetConfig(p, appWidgetId)
+        // Un widget déjà posé avant la v2 reçoit, une seule fois, les infos de la maquette ; thème et heure sont conservés.
+        if (p.contains("w$appWidgetId.theme") && p.getInt("w$appWidgetId.cfg_v", 1) < CONFIG_VERSION) {
+            val migrated = WidgetConfig(theme = stored.theme, showTime = stored.showTime)
+            saveWidgetConfig(ctx, appWidgetId, migrated)
+            return migrated
+        }
+        return stored
+    }
+
+    private fun readWidgetConfig(p: SharedPreferences, appWidgetId: Int): WidgetConfig {
         val default = WidgetConfig()
         val theme = WidgetTheme.fromName(p.getString("w$appWidgetId.theme", null)) ?: default.theme
         val metrics = p.getString("w$appWidgetId.metrics", null)
@@ -195,6 +214,7 @@ object Storage {
             .putBoolean("w$appWidgetId.show_time", c.showTime)
             .putBoolean("w$appWidgetId.om_enabled", c.forecastEnabled)
             .putString("w$appWidgetId.om_metrics", c.forecastMetrics.joinToString(","))
+            .putInt("w$appWidgetId.cfg_v", CONFIG_VERSION)
             .apply()
     }
 
@@ -205,6 +225,7 @@ object Storage {
             .remove("w$appWidgetId.show_time")
             .remove("w$appWidgetId.om_enabled")
             .remove("w$appWidgetId.om_metrics")
+            .remove("w$appWidgetId.cfg_v")
             .apply()
     }
 

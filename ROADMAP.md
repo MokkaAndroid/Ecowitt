@@ -6,7 +6,8 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 > **v0.2** (Open-Meteo + courbe 24 h + couleurs dynamiques + tendances) : compile, **pas encore testée sur téléphone**.
 > **v0.3** (catalogue Open-Meteo par catégories, variable personnalisée, message pluie AROME, air/pollens) : code écrit, **compile**
 > (build GitHub Actions réussi le 08/11/2026), **pas encore testée sur téléphone**. Voir la checklist en bas de page.
-> **v0.4** (refonte de l'affichage, direction « B · Héros + pluie » choisie le 08/11/2026) : code écrit, compilation à confirmer, **pas encore testée sur téléphone**.
+> **v0.4** (refonte de l'affichage, direction « B · Héros + pluie » choisie le 08/11/2026) : compile, **pas encore testée sur téléphone**.
+> **v0.5** (08/11/2026 : bascule sur la direction « A · Sections » pour les grands widgets, infos de la maquette activées d'office) : code écrit, compilation à confirmer, **pas encore testée sur téléphone**.
 
 ## Phase 0 — Cadrage
 - ✅ Station : Ecowitt HP2564 (console Wi-Fi → cloud ecowitt.net)
@@ -95,6 +96,15 @@ Maquettes : canevas « Ecowidget · 3 propositions d'affichage » (A sections ·
 - ⏳ Brancher les barres sur PIAF (pas de 5 min) : dépend du test Météo-France (unité mm ou kg/m²/s, durée de cumul)
 - ⏳ Aperçu en direct dans l'écran de personnalisation ; thème clair/sombre manuel en plus du thème par widget
 
+## Phase 5 ter — Affichage en cartes « A · Sections » (v0.5)
+Retour du 08/11 : le rendu B était « très loin » des maquettes ; Mickaël demande de basculer sur **A** et d'activer directement les infos de la maquette.
+- 🧪 Trois gabarits selon la hauteur du widget : **< 100 dp** format court (inchangé) · **100–270 dp** tableau de bord (v0.4 : héros + météo + bandeau station) · **≥ 270 dp** **sections**
+- 🧪 Sections : en-tête (commune, date) · carte prévisions (icône, libellé, ressenti, max / min, heures avec maxi en couleur) · tuiles Open-Meteo (pluie, vent, précipitations, air, pollens, isotherme) · carte station (mesure en grand + « Ressenti · tendance horaire » + courbe 24 h + tuiles humidité, vent, pluie du jour, pression, UV, point de rosée)
+- 🧪 Alerte pluie contextuelle : s'il pleut ou si de la pluie est prévue, la carte pluie (message + barres de 5 min) apparaît en haut ; sinon la tuile « Pluie · Aucune ≤ 6 h » suffit
+- 🧪 Hauteur libre répartie entre les blocs (espaceurs élastiques) ; priorités : alerte → carte prévisions → tuiles station → tuiles Open-Meteo → heures → en-tête → lignes de tuiles en plus → mesure principale plus grande
+- 🧪 Nouvelle info « Pollens (le plus élevé des six) » : max des six espèces de l'API air-quality
+- 🧪 **Configuration préremplie** : nouveaux widgets et widgets déjà posés (une seule fois, thème et heure conservés) reçoivent min/max, ressenti, heures, message pluie, prochaine pluie, vent, précipitations, qualité de l'air, pollens, isotherme 0 °C ; station : humidité, vent, pluie du jour, pression, UV, point de rosée. Modifiable ensuite par « Reconfigurer »
+
 ## Phase 6 — Configuration
 - ✅ Écran de connexion (clés + MAC, validation du format, test en direct)
 - ✅ Écran de personnalisation par widget (thème, mesures station, infos Open-Meteo, ordre, options)
@@ -147,3 +157,5 @@ Maquettes : canevas « Ecowidget · 3 propositions d'affichage » (A sections ·
 18. [ ] **v0.4** — Widget 4×1 / 4×2 / 4×3 / 4×4 : héros lisible, rien de coupé, station toujours visible en bas ; plus le widget est haut, plus il montre de blocs (pluie, heures, infos, en-tête, courbe)
 19. [ ] **v0.4** — Carte pluie : jour sec = ligne simple ; quand de la pluie est prévue (ou qu'il pleut) = carte avec barres ; comparer le message et les barres avec le radar
 20. [ ] **v0.4** — Valeurs à zéro estompées (pluie du jour 0,0 mm, pollens 0) ; température 0 °C affichée normalement
+21. [ ] **v0.5** — Grand widget : cartes prévisions / tuiles / station, rien de coupé, pas de grand vide ; infos de la maquette présentes (ressenti, heures, vent, précip., air, pollens, isotherme)
+22. [ ] **v0.5** — Les valeurs « Open-Meteo » manquantes (« — ») se remplissent après la première actualisation (appui sur le widget) ; ligne « Air et pollens » OK dans Diagnostic

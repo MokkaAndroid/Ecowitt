@@ -52,14 +52,18 @@ import app.ecowidget.data.Metric
 import app.ecowidget.data.MetricValue
 import app.ecowidget.data.OmCatalog
 import app.ecowidget.data.OmItem
+import app.ecowidget.data.OmSection
 import app.ecowidget.data.Storage
 import app.ecowidget.data.WeatherCodes
 import app.ecowidget.data.WeatherRepository
 import app.ecowidget.data.WeatherSnapshot
 import app.ecowidget.data.WidgetConfig
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.min
 
@@ -202,10 +206,10 @@ private fun WidgetBody(config: WidgetConfig, state: CachedState, derived: Derive
             // L'accent suit la température ; il passe au bleu pluie quand il pleut.
             val accent = if (raining) p.rain else TempColors.forTemp(snap.outdoorTemp, p.isLight, p.accent)
             val status = statusOf(state, config.showTime)
-            if (size.height < 100.dp) {
-                Compact(p, accent, config, snap, derived, info, status, size.width)
-            } else {
-                Full(p, accent, config, snap, derived, info, status, size)
+            when {
+                size.height < 100.dp -> Compact(p, accent, config, snap, derived, info, status, size.width)
+                size.height.value >= SECTIONS_MIN_H -> Sections(p, accent, config, snap, derived, info, status, size)
+                else -> Full(p, accent, config, snap, derived, info, status, size)
             }
         }
     }
@@ -353,7 +357,7 @@ private fun Full(
     val hoursSelected = items.any { it.id == OmCatalog.NEXT_HOURS }
     val hasHours = f != null && f.hours.size >= 2
     val wantRange = items.any { it.id == "DAY_RANGE" }
-    val facts = items.filter { it.id != OmCatalog.RAIN_MESSAGE && it.id != OmCatalog.NEXT_HOURS && it.id != "DAY_RANGE" }
+    val facts = items.filter { it.id !in SECTION_SPECIAL }
     val ecoChips = config.metrics.drop(1)
     val hero = config.metrics.first()
     val canSpark = hero == Metric.OUTDOOR_TEMP && (derived?.tempSeries?.size ?: 0) >= 3
@@ -503,6 +507,438 @@ private fun chipValue(m: Metric, v: MetricValue): String =
     if (m == Metric.RAIN_NOW) v.value else joinValue(v)
 
 // ───────────────────────────── Blocs ─────────────────────────────
+
+// ───────────────────────────── Format « sections » (grands widgets) ─────────────────────────────
+
+// Hauteurs estimées (dp) des blocs du format « sections », marge basse comprise.
+private const val SECTIONS_MIN_H = 270f
+private const val S_HEADER_H = 42f
+private const val S_FCARD_H = 74f
+private const val S_HOURS_H = 72f
+private const val S_TILE_ROW_H = 54f
+private const val S_STATION_BASE = 116f
+private const val S_MAX_HERO_SP = 56
+private const val S_MAX_STATION_ROWS = 2
+private const val S_MAX_OM_ROWS = 3
+
+private const val APPARENT_ID = "current.apparent_temperature"
+
+/** Infos Open-Meteo qui ont leur place dédiée (carte prévisions, alerte pluie) et ne sont donc pas des tuiles. */
+private val SECTION_SPECIAL = setOf(OmCatalog.RAIN_MESSAGE, OmCatalog.NEXT_HOURS, "DAY_RANGE", APPARENT_ID)
+
+private data class Tile(
+    val icon: Int,
+    val label: String,
+    val value: String,
+    val unit: String,
+    val highlight: Boolean,
+    val quiet: Boolean,
+    val trend: Int?,
+)
+
+private fun tileOf(icon: Int, label: String, v: MetricValue) =
+    Tile(icon, label, v.value, v.unit, v.highlight, isQuiet(v), v.trend)
+
+/** « Ressenti 9° · +1,2° / h » sous la température de la station. */
+private fun heroSub(hero: Metric, snap: WeatherSnapshot, derived: Derived?): String? {
+    if (hero != Metric.OUTDOOR_TEMP) return null
+    val parts = ArrayList<String>()
+    snap.feelsLike?.let { parts.add("Ressenti " + Metric.fmt(it, 0) + "°") }
+    val trend = derived?.tempTrend1h
+    if (trend != null && abs(trend) >= 0.2) {
+        parts.add((if (trend > 0) "+" else "−") + Metric.fmt(abs(trend), 1) + "° / h")
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+
+/**
+ * Format « sections » : en-tête, carte prévisions (météo, ressenti, mini/maxi, heures), tuiles Open-Meteo,
+ * carte station (mesure principale, courbe 24 h, tuiles). La hauteur libre est répartie entre les blocs.
+ */
+@Composable
+private fun Sections(
+    p: WidgetTheme,
+    accent: Color,
+    config: WidgetConfig,
+    snap: WeatherSnapshot,
+    derived: Derived?,
+    info: ForecastInfo,
+    status: Status,
+    size: DpSize,
+) {
+    val w = size.width.value
+    val innerW = w - 2f * PAD_H
+    val f = info.forecast.takeIf { config.forecastEnabled }
+    val items = if (f != null) config.forecastMetrics.mapNotNull { OmCatalog.byId(it) } else emptyList()
+
+    val rainItem = items.firstOrNull { it.id == OmCatalog.RAIN_MESSAGE }
+    val rainValue = if (rainItem != null && f != null) rainItem.read(f, snap) else null
+    // Le message pluie ne s'affiche en carte (avec barres) que s'il y a de la pluie en cours ou prévue ;
+    // sinon la tuile « Prochaine pluie » suffit.
+    val rainAlert = rainValue != null && rainValue.value != Metric.MISSING.value &&
+        (snap.isRaining == true || f?.nextRainMin != null)
+    val wantHours = f != null && f.hours.size >= 2 && items.any { it.id == OmCatalog.NEXT_HOURS }
+    val showRange = items.any { it.id == "DAY_RANGE" }
+    val showFeels = items.any { it.id == APPARENT_ID }
+    val omTiles = if (f != null) {
+        items.filter { it.id !in SECTION_SPECIAL }.map { tileOf(it.icon, it.shortLabel, it.read(f, snap)) }
+    } else {
+        emptyList()
+    }
+    val hero = config.metrics.first()
+    val ecoTiles = config.metrics.drop(1).map { m -> tileOf(m.icon, m.label, m.read(snap, derived)) }
+    val columns = if (innerW >= 290f) 3 else 2
+
+    // ---- Budget de hauteur : la carte station est obligatoire, le reste par priorité ----
+    var rem = size.height.value - 2f * PAD_V
+    val notice = config.forecastEnabled && f == null
+    if (notice) rem -= NOTICE_H
+    var heroSp = 40
+    rem -= S_STATION_BASE
+
+    var alert = false
+    var fcard = false
+    var hours = false
+    var header = false
+    var stationRows = 0
+    var omRows = 0
+    val stationMaxRows = min(S_MAX_STATION_ROWS, ceil(ecoTiles.size / columns.toDouble()).toInt())
+    val omMaxRows = min(S_MAX_OM_ROWS, ceil(omTiles.size / columns.toDouble()).toInt())
+    if (f != null && rainAlert && rem >= RAIN_CARD_H) { alert = true; rem -= RAIN_CARD_H }
+    if (f != null && rem >= S_FCARD_H) { fcard = true; rem -= S_FCARD_H }
+    if (stationMaxRows > 0 && rem >= S_TILE_ROW_H) { stationRows = 1; rem -= S_TILE_ROW_H }
+    if (omMaxRows > 0 && rem >= S_TILE_ROW_H) { omRows = 1; rem -= S_TILE_ROW_H }
+    if (fcard && wantHours && rem >= S_HOURS_H) { hours = true; rem -= S_HOURS_H }
+    if (rem >= S_HEADER_H) { header = true; rem -= S_HEADER_H }
+    while (stationRows in 1 until stationMaxRows && rem >= S_TILE_ROW_H) { stationRows++; rem -= S_TILE_ROW_H }
+    while (omRows in 1 until omMaxRows && rem >= S_TILE_ROW_H) { omRows++; rem -= S_TILE_ROW_H }
+    while (heroSp < S_MAX_HERO_SP && rem >= 5f) { heroSp += 4; rem -= 5f }
+
+    val heroValue = hero.read(snap, derived)
+    val heroColor = heroColor(p, hero, heroValue, snap, derived)
+    val lo = f?.dayMin
+    val hi = f?.dayMax
+    val range = if (showRange && lo != null && hi != null) {
+        (Metric.fmt(hi, 0) + "°") to (Metric.fmt(lo, 0) + "°")
+    } else {
+        null
+    }
+    val feels = if (showFeels) {
+        f?.raw?.number(OmSection.CURRENT, "apparent_temperature")?.let { "Ressenti " + Metric.fmt(it, 0) + "°" }
+    } else {
+        null
+    }
+
+    // Glance n'affiche que 10 enfants par colonne : un bloc = une colonne, et des espaceurs élastiques
+    // répartissent la hauteur libre entre eux.
+    Column(modifier = GlanceModifier.fillMaxSize()) {
+        if (header || alert || notice) {
+            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                if (header) SectionsHeader(p, shortPlace(info.place))
+                if (notice) ForecastNotice(p, info)
+                if (alert && rainValue != null && f != null) RainCard(p, f, rainValue, w, RAIN_BARS_H)
+            }
+            Spacer(modifier = GlanceModifier.defaultWeight())
+        }
+        if (fcard && f != null) {
+            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                ForecastCard(p, accent, f, feels, range, hours, innerW)
+            }
+            Spacer(modifier = GlanceModifier.defaultWeight())
+        }
+        if (omRows > 0) {
+            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                TileRows(p, accent, omTiles.take(omRows * columns), columns)
+            }
+            Spacer(modifier = GlanceModifier.defaultWeight())
+        }
+        Column(modifier = GlanceModifier.fillMaxWidth()) {
+            StationCard(
+                p = p,
+                accent = accent,
+                hero = hero,
+                heroValue = heroValue,
+                heroColor = heroColor,
+                heroSp = heroSp,
+                sub = heroSub(hero, snap, derived),
+                badge = if (hero == Metric.OUTDOOR_TEMP && innerW >= 260f) frostBadge(snap.outdoorTemp) else null,
+                status = status,
+                derived = derived,
+                innerW = innerW,
+                tiles = ecoTiles.take(stationRows * columns),
+                columns = columns,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionsHeader(p: WidgetTheme, place: String?) {
+    val date = DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()).format(LocalDate.now())
+    Row(
+        modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = GlanceModifier.defaultWeight()) {
+            Text(
+                text = place ?: "Ecowidget",
+                style = TextStyle(color = ColorProvider(p.text), fontSize = 17.sp, fontWeight = FontWeight.Bold),
+                maxLines = 1,
+            )
+            Text(
+                text = date,
+                style = TextStyle(color = ColorProvider(p.muted), fontSize = 11.sp),
+                maxLines = 1,
+            )
+        }
+        Image(
+            provider = ImageProvider(R.drawable.ic_refresh),
+            contentDescription = null,
+            modifier = GlanceModifier.size(18.dp),
+            colorFilter = ColorFilter.tint(ColorProvider(p.muted)),
+        )
+    }
+}
+
+/** Carte prévisions : météo du moment, ressenti, maxi / mini, puis les prochaines heures. */
+@Composable
+private fun ForecastCard(
+    p: WidgetTheme,
+    accent: Color,
+    f: Forecast,
+    feels: String?,
+    range: Pair<String, String>?,
+    hours: Boolean,
+    innerW: Float,
+) {
+    val day = f.isDay ?: true
+    Column(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .background(ImageProvider(p.card))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                provider = ImageProvider(WeatherCodes.icon(f.code, day)),
+                contentDescription = null,
+                modifier = GlanceModifier.size(36.dp),
+                colorFilter = ColorFilter.tint(ColorProvider(accent)),
+            )
+            Spacer(modifier = GlanceModifier.width(10.dp))
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                Text(
+                    text = WeatherCodes.label(f.code, day),
+                    style = TextStyle(color = ColorProvider(p.text), fontSize = 17.sp, fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                )
+                if (feels != null) {
+                    Text(
+                        text = feels,
+                        style = TextStyle(color = ColorProvider(p.muted), fontSize = 11.sp),
+                        maxLines = 1,
+                    )
+                }
+            }
+            if (range != null) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(
+                            text = range.first,
+                            style = TextStyle(color = ColorProvider(p.text), fontSize = 22.sp, fontWeight = FontWeight.Medium),
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = " / " + range.second,
+                            style = TextStyle(color = ColorProvider(p.muted), fontSize = 15.sp),
+                            maxLines = 1,
+                        )
+                    }
+                    Text(
+                        text = "max / min",
+                        style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+        if (hours) {
+            Box(modifier = GlanceModifier.fillMaxWidth().padding(top = 8.dp)) {
+                Box(
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(ColorProvider(p.muted.copy(alpha = 0.25f))),
+                ) {}
+            }
+            HoursStrip(p, accent, f.hours, min(f.hours.size, ((innerW - 24f) / 44f).toInt().coerceIn(2, 7)), highlightMax = true)
+        }
+    }
+}
+
+/** Carte station : étiquette et heure, mesure principale avec sa courbe 24 h, puis les tuiles. */
+@Composable
+private fun StationCard(
+    p: WidgetTheme,
+    accent: Color,
+    hero: Metric,
+    heroValue: MetricValue,
+    heroColor: Color,
+    heroSp: Int,
+    sub: String?,
+    badge: String?,
+    status: Status,
+    derived: Derived?,
+    innerW: Float,
+    tiles: List<Tile>,
+    columns: Int,
+) {
+    val density = LocalContext.current.resources.displayMetrics.density
+    val series = derived?.tempSeries
+    val heroWidth = heroValue.value.length * 0.58f * heroSp + 46f
+    val sparkW = min(170f, innerW - 24f - heroWidth - 12f)
+    val sparkH = min(heroSp * 1.2f, 52f)
+    val spark = if (hero == Metric.OUTDOOR_TEMP && series != null && sparkW >= 70f) {
+        Sparkline.render(
+            series = series,
+            widthPx = (sparkW * density).toInt(),
+            heightPx = (sparkH * density).toInt(),
+            density = density,
+            lineColor = accent.toArgb(),
+            gridColor = p.muted.copy(alpha = 0.55f).toArgb(),
+        )
+    } else {
+        null
+    }
+    Column(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .background(ImageProvider(p.card))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "STATION ECOWITT" + if (hero != Metric.OUTDOOR_TEMP) " · " + hero.label.uppercase() else "",
+                style = TextStyle(color = ColorProvider(p.muted), fontSize = 9.sp, fontWeight = FontWeight.Medium),
+                maxLines = 1,
+            )
+            if (badge != null) {
+                Spacer(modifier = GlanceModifier.width(8.dp))
+                Text(
+                    text = badge,
+                    style = TextStyle(color = ColorProvider(p.accent), fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                    modifier = GlanceModifier
+                        .background(ImageProvider(R.drawable.badge_frost))
+                        .padding(horizontal = 7.dp, vertical = 1.dp),
+                )
+            }
+            Spacer(modifier = GlanceModifier.defaultWeight())
+            if (status.text.isNotEmpty()) {
+                Text(
+                    text = status.text,
+                    style = TextStyle(color = ColorProvider(if (status.warn) p.warn else p.muted), fontSize = 10.sp),
+                    maxLines = 1,
+                )
+            }
+        }
+        Spacer(modifier = GlanceModifier.height(6.dp))
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                HeroValue(p, heroValue, heroSp.sp, heroColor)
+                if (sub != null) {
+                    Text(
+                        text = sub,
+                        style = TextStyle(color = ColorProvider(p.muted), fontSize = 11.sp),
+                        maxLines = 1,
+                    )
+                }
+            }
+            if (spark != null) {
+                Spacer(modifier = GlanceModifier.width(12.dp))
+                Image(
+                    provider = ImageProvider(spark),
+                    contentDescription = null,
+                    modifier = GlanceModifier.width(sparkW.dp).height(sparkH.dp),
+                    contentScale = ContentScale.FillBounds,
+                )
+            }
+        }
+        if (tiles.isNotEmpty()) {
+            Spacer(modifier = GlanceModifier.height(8.dp))
+            TileRows(p, accent, tiles, columns)
+        }
+    }
+}
+
+@Composable
+private fun TileRows(p: WidgetTheme, accent: Color, tiles: List<Tile>, columns: Int) {
+    tiles.chunked(columns).forEach { rowTiles ->
+        Row(modifier = GlanceModifier.fillMaxWidth()) {
+            rowTiles.forEach { t ->
+                Box(modifier = GlanceModifier.defaultWeight().padding(2.dp)) { TileCell(p, accent, t) }
+            }
+            repeat(columns - rowTiles.size) {
+                Spacer(modifier = GlanceModifier.defaultWeight())
+            }
+        }
+    }
+}
+
+/** Une tuile : icône et libellé en haut, valeur en dessous (estompée quand elle est à zéro). */
+@Composable
+private fun TileCell(p: WidgetTheme, accent: Color, t: Tile) {
+    val arrow = trendGlyph(t.trend)
+    Column(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .background(ImageProvider(p.card))
+            .padding(horizontal = 9.dp, vertical = 7.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                provider = ImageProvider(t.icon),
+                contentDescription = null,
+                modifier = GlanceModifier.size(12.dp),
+                colorFilter = ColorFilter.tint(ColorProvider(if (t.highlight) p.rain else if (t.quiet) p.muted else accent)),
+            )
+            Spacer(modifier = GlanceModifier.width(4.dp))
+            Text(
+                text = t.label,
+                style = TextStyle(color = ColorProvider(p.muted), fontSize = 9.sp),
+                maxLines = 1,
+            )
+        }
+        Spacer(modifier = GlanceModifier.height(3.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = t.value,
+                style = TextStyle(
+                    color = ColorProvider(if (t.highlight) p.rain else if (t.quiet) p.muted else p.text),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                maxLines = 1,
+            )
+            if (t.unit.isNotEmpty()) {
+                Spacer(modifier = GlanceModifier.width(3.dp))
+                Text(
+                    text = t.unit,
+                    style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
+                    maxLines = 1,
+                )
+            }
+            if (arrow != null && t.trend != null) {
+                Spacer(modifier = GlanceModifier.width(3.dp))
+                Text(
+                    text = arrow,
+                    style = TextStyle(color = ColorProvider(trendColor(p, t.trend)), fontSize = 9.sp),
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun Header(p: WidgetTheme, place: String?, status: Status) {
@@ -873,7 +1309,8 @@ private fun <T> ChipGrid(columns: Int, items: List<T>, chip: @Composable (T) -> 
 }
 
 @Composable
-private fun HoursStrip(p: WidgetTheme, accent: Color, hours: List<HourPoint>, count: Int) {
+private fun HoursStrip(p: WidgetTheme, accent: Color, hours: List<HourPoint>, count: Int, highlightMax: Boolean = false) {
+    val hot = if (highlightMax) hours.take(count).mapNotNull { it.temp }.maxOrNull() else null
     Row(modifier = GlanceModifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         hours.take(count).forEach { h ->
             Box(modifier = GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) {
@@ -891,7 +1328,11 @@ private fun HoursStrip(p: WidgetTheme, accent: Color, hours: List<HourPoint>, co
                     )
                     Text(
                         text = h.temp?.let { Metric.fmt(it, 0) + "°" } ?: "—",
-                        style = TextStyle(color = ColorProvider(p.text), fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        style = TextStyle(
+                            color = ColorProvider(if (hot != null && h.temp == hot) accent else p.text),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
                         maxLines = 1,
                     )
                 }
