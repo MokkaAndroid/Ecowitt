@@ -688,6 +688,27 @@ private fun SettingsScreen(tick: Int) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (refreshing) "Actualisation…" else "Tout actualiser maintenant") }
+                var snowProbe by remember { mutableStateOf<List<String>?>(null) }
+                var probing by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    enabled = !probing && location != null,
+                    onClick = {
+                        location?.let { loc ->
+                            probing = true
+                            scope.launch {
+                                snowProbe = withContext(Dispatchers.IO) {
+                                    runCatching { OpenMeteoClient.probeSnowLimit(loc) }
+                                        .getOrElse { listOf(OpenMeteoClient.describe(it)) }
+                                }
+                                probing = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (probing) "Test en cours…" else "Tester la limite pluie / neige (modèles)") }
+                snowProbe?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
 
             Section("Widget") {

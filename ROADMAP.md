@@ -132,6 +132,10 @@ Retour du 08/11 : le rendu B était « très loin » des maquettes ; Mickaël de
 - ✅ v0.5.3 : correction d'altitude des températures prévues (−0,65 °C / 100 m entre le point de prévision et l'altitude saisie dans les réglages), flèche ⇄ sur le widget pour basculer corrigé / modèle
 - ✅ v0.5.4 : bascule corrigé / modèle réparée (le widget relit désormais ses données dans la composition : une session Glance encore ouverte gardait l'ancien affichage), pastille ⇄ plus grande, interrupteur + compteur d'appuis dans les réglages
 - ✅ v0.5.4 : nouvelles infos « Pluie aujourd'hui » (cumul jusqu'à minuit) et « Limite neige » (estimée : isotherme 0 °C − 300 m, au début et à la fin de la pluie), ajoutées aux widgets existants (config v3)
+- ✅ v0.5.5 : la courbe de température est remplacée par le min / max du jour de la station (carte station et format large)
+- ✅ v0.5.5 : analyse des sources de limite pluie / neige (`docs/limite-pluie-neige.md`) + bouton de test « Tester la limite pluie / neige (modèles) » dans Réglages → Diagnostic
+- 🔲 À tester v0.5.5 : min / max affichés (valeurs cohérentes avec l'app Ecowitt), bouton de test limite pluie / neige : relever les lignes affichées
+- ⏳ Limite pluie / neige : choisir la source (Open-Meteo `snowfall_height` selon le test, Météo-France BRA en saison, station en temps réel)
 - 🔲 À tester v0.5.4 : altitude 685 m saisie, appui sur la pastille ⇄ (valeurs et libellé « 685 m » / « modèle » changent, compteur d'appuis dans les réglages), tuiles « Pluie aujourd'hui » et « Limite neige » un jour de pluie / de neige
 - 🔲 À tester : clé stable active (secrets en place), installer v0.5.1 puis la suivante par-dessus sans désinstaller
 - ✅ README (installation pas à pas)

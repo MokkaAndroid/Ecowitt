@@ -164,8 +164,7 @@ private const val RAIN_LINE_H = 24f
 private const val RAIN_CARD_H = 92f
 private const val HOURS_STRIP_H = 54f
 private const val HOURS_CURVE_H = 96f
-private const val SPARK_H = 44f
-private const val SPARK_DRAW_H = 38f
+private const val EXTREMES_H = 28f
 private const val MAX_HERO_SP = 72
 private const val RAIN_BARS_H = 30f
 private const val CURVE_H = 26f
@@ -406,7 +405,7 @@ private fun Full(
     val facts = items.filter { it.id !in SECTION_SPECIAL }
     val ecoChips = config.metrics.drop(1)
     val hero = config.metrics.first()
-    val canSpark = hero == Metric.OUTDOOR_TEMP && (derived?.tempSeries?.size ?: 0) >= 3
+    val canSpark = hero == Metric.OUTDOOR_TEMP && derived?.dayMin != null && derived.dayMax != null
 
     // ---- Budget de hauteur : le héros et une ligne de station sont obligatoires, le reste par priorité ----
     val columns = (innerW / 72f).toInt().coerceIn(2, 5)
@@ -446,7 +445,7 @@ private fun Full(
         rem -= RAIN_CARD_H - RAIN_LINE_H
     }
     if (!hours && hasHours && rem >= HOURS_CURVE_H) { hours = true; curve = true; rem -= HOURS_CURVE_H }
-    if (canSpark && rem >= SPARK_H) { spark = true; rem -= SPARK_H }
+    if (canSpark && rem >= EXTREMES_H) { spark = true; rem -= EXTREMES_H }
     while (stationRows < stationRowsMax && rem >= STATION_ROW_H) { stationRows++; rem -= STATION_ROW_H }
     val factRowsMax = min(MAX_FACT_ROWS, ceil(facts.size / factColumns.toDouble()).toInt())
     while (factRows in 1 until factRowsMax && rem >= FACT_ROW_H) { factRows++; rem -= FACT_ROW_H }
@@ -494,7 +493,7 @@ private fun Full(
                 wxLine = wxLine(p, f, rainMode, rainValue, wantRange),
             )
             if (notice) ForecastNotice(p, info)
-            if (spark) TrendSparkline(p, accent, derived, innerW)
+            if (spark) DayExtremesRow(p, derived)
             if (rainMode == RainMode.LINE && rainValue != null) RainBanner(p, accent, rainValue)
         }
         Spacer(modifier = GlanceModifier.defaultWeight())
@@ -851,7 +850,7 @@ private fun ForecastCard(
     }
 }
 
-/** Carte station : étiquette et heure, mesure principale avec sa courbe 24 h, puis les tuiles. */
+/** Carte station : étiquette et heure, mesure principale avec le min / max du jour, puis les tuiles. */
 @Composable
 private fun StationCard(
     p: WidgetTheme,
@@ -868,23 +867,9 @@ private fun StationCard(
     tiles: List<Tile>,
     columns: Int,
 ) {
-    val density = LocalContext.current.resources.displayMetrics.density
-    val series = derived?.tempSeries
-    val heroWidth = heroValue.value.length * 0.58f * heroSp + 46f
-    val sparkW = min(170f, innerW - 24f - heroWidth - 12f)
-    val sparkH = min(heroSp * 1.2f, 52f)
-    val spark = if (hero == Metric.OUTDOOR_TEMP && series != null && sparkW >= 70f) {
-        Sparkline.render(
-            series = series,
-            widthPx = (sparkW * density).toInt(),
-            heightPx = (sparkH * density).toInt(),
-            density = density,
-            lineColor = accent.toArgb(),
-            gridColor = p.muted.copy(alpha = 0.55f).toArgb(),
-        )
-    } else {
-        null
-    }
+    val lo = derived?.dayMin
+    val hi = derived?.dayMax
+    val showExtremes = hero == Metric.OUTDOOR_TEMP && lo != null && hi != null
     Column(
         modifier = GlanceModifier
             .fillMaxWidth()
@@ -929,14 +914,9 @@ private fun StationCard(
                     )
                 }
             }
-            if (spark != null) {
+            if (showExtremes && lo != null && hi != null) {
                 Spacer(modifier = GlanceModifier.width(12.dp))
-                Image(
-                    provider = ImageProvider(spark),
-                    contentDescription = null,
-                    modifier = GlanceModifier.width(sparkW.dp).height(sparkH.dp),
-                    contentScale = ContentScale.FillBounds,
-                )
+                DayExtremesColumn(p, lo, hi)
             }
         }
         if (tiles.isNotEmpty()) {
@@ -1136,30 +1116,42 @@ private fun WeatherColumn(p: WidgetTheme, accent: Color, f: Forecast, line: Pair
     }
 }
 
-/** Courbe de température des 24 dernières heures, sous le héros, sur toute la largeur. */
+/** Min et max de la journée (station, depuis minuit), sous le héros, sur toute la largeur. */
 @Composable
-private fun TrendSparkline(p: WidgetTheme, accent: Color, derived: Derived?, innerW: Float) {
-    val series = derived?.tempSeries
-    if (series != null) {
-        val density = LocalContext.current.resources.displayMetrics.density
-        val bmp = Sparkline.render(
-            series = series,
-            widthPx = (innerW * density).toInt(),
-            heightPx = (SPARK_DRAW_H * density).toInt(),
-            density = density,
-            lineColor = accent.toArgb(),
-            gridColor = p.muted.copy(alpha = 0.55f).toArgb(),
+private fun DayExtremesRow(p: WidgetTheme, derived: Derived?) {
+    val lo = derived?.dayMin
+    val hi = derived?.dayMax
+    if (lo == null || hi == null) return
+    Row(modifier = GlanceModifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = GlanceModifier.defaultWeight()) { ExtremeValue(p, "MIN", lo) }
+        Box(modifier = GlanceModifier.defaultWeight()) { ExtremeValue(p, "MAX", hi) }
+    }
+}
+
+/** Min et max de la journée, empilés, à droite de la mesure principale de la carte station. */
+@Composable
+private fun DayExtremesColumn(p: WidgetTheme, lo: Double, hi: Double) {
+    Column(horizontalAlignment = Alignment.End) {
+        ExtremeValue(p, "MAX", hi)
+        Spacer(modifier = GlanceModifier.height(2.dp))
+        ExtremeValue(p, "MIN", lo)
+    }
+}
+
+@Composable
+private fun ExtremeValue(p: WidgetTheme, label: String, v: Double) {
+    Row(verticalAlignment = Alignment.Bottom) {
+        Text(
+            text = label,
+            style = TextStyle(color = ColorProvider(p.muted), fontSize = 9.sp, fontWeight = FontWeight.Medium),
+            maxLines = 1,
         )
-        if (bmp != null) {
-            Box(modifier = GlanceModifier.fillMaxWidth().padding(top = 6.dp)) {
-                Image(
-                    provider = ImageProvider(bmp),
-                    contentDescription = null,
-                    modifier = GlanceModifier.fillMaxWidth().height(SPARK_DRAW_H.dp),
-                    contentScale = ContentScale.FillBounds,
-                )
-            }
-        }
+        Spacer(modifier = GlanceModifier.width(6.dp))
+        Text(
+            text = Metric.fmt(v, 1) + "°",
+            style = TextStyle(color = ColorProvider(p.text), fontSize = 15.sp, fontWeight = FontWeight.Bold),
+            maxLines = 1,
+        )
     }
 }
 

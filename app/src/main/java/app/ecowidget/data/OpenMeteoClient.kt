@@ -88,6 +88,49 @@ object OpenMeteoClient {
         return json.also { it.put(AltitudeCorrection.RAW_KEY, true) }
     }
 
+    /**
+     * Diagnostic : limite pluie / neige annoncée par plusieurs modèles pour la position, sur les 24 prochaines heures.
+     * Une requête par modèle, pour qu'un modèle qui ne fournit pas la variable n'empêche pas les autres.
+     */
+    fun probeSnowLimit(loc: Location): List<String> {
+        val models = listOf(
+            "icon_d2" to "ICON-D2 (DWD, 2 km)",
+            "icon_eu" to "ICON-EU (DWD, 7 km)",
+            "meteoswiss_icon_ch1" to "ICON-CH1 (MétéoSuisse, 1 km)",
+            "meteoswiss_icon_ch2" to "ICON-CH2 (MétéoSuisse, 2 km)",
+            "best_match" to "Automatique Open-Meteo",
+        )
+        val now = System.currentTimeMillis() / 1000
+        return models.map { (id, label) ->
+            try {
+                val b = builder("api.open-meteo.com", "v1/forecast", loc, false)
+                    .appendQueryParameter("hourly", "snowfall_height,freezing_level_height")
+                    .appendQueryParameter("models", id)
+                val hourly = getJson(b.build().toString()).optJSONObject("hourly")
+                val times = hourly?.optJSONArray("time")
+                fun span(name: String): String? {
+                    val arr = hourly?.optJSONArray(name) ?: return null
+                    val xs = ArrayList<Double>()
+                    for (i in 0 until (times?.length() ?: 0)) {
+                        val t = times?.optLong(i) ?: continue
+                        if (t < now || t > now + 24 * 3600 || arr.isNull(i)) continue
+                        xs.add(arr.optDouble(i))
+                    }
+                    if (xs.isEmpty()) return null
+                    val lo = xs.min().toInt()
+                    val hi = xs.max().toInt()
+                    return if (lo == hi) "$lo m" else "$lo–$hi m"
+                }
+                val snow = span("snowfall_height")
+                val iso = span("freezing_level_height")
+                if (snow == null && iso == null) "$label : aucune valeur à ta position"
+                else "$label : neige ${snow ?: "indisponible"} · iso 0 °C ${iso ?: "indisponible"}"
+            } catch (e: Exception) {
+                "$label : ${describe(e)}"
+            }
+        }
+    }
+
     /** Pluie à court terme : modèles AROME de Météo-France (pas de 15 min, horizon 6 h, mise à jour horaire). */
     fun fetchNowcast(loc: Location): JSONObject {
         val b = builder("api.open-meteo.com", "v1/meteofrance", loc, true)
