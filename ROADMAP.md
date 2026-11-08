@@ -38,8 +38,17 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 - 🧪 Cache 10 min, repli silencieux si Open-Meteo est injoignable (le bloc du bas n'est jamais impacté)
 - ✅ Attribution « Open-Meteo » dans le widget, l'écran de réglages et le README (licence CC BY 4.0, usage non commercial)
 - ✅ Vie privée : coordonnées arrondies à ~1 km, jamais de clé Ecowitt envoyée
-- ⏳ Qualité de l'air / pollens (API air-quality, Europe)
+- ⏳ **Catalogue complet par catégories** (v0.3) : aujourd'hui 14 infos en liste plate. Cible : ~70 infos classées (Température & humidité · Vent · Précipitations · Ciel & visibilité · Pression · Soleil & UV · Sol · Orage & stabilité · Astro · Qualité de l'air · Pollens), chacune avec sa portée (maintenant / aujourd'hui / dans N h) et ses unités lues dans la réponse de l'API
+- ⏳ « Variable personnalisée » : saisir le nom d'une variable Open-Meteo pour couvrir littéralement tout le reste
+- ⏳ Qualité de l'air / pollens (API air-quality, Europe, pollens saisonniers)
 - ⏳ Alertes météo (vigilance) — non couvertes par Open-Meteo, source à étudier (Météo-France)
+
+## Phase 3 bis — Pluie imminente (message unique)
+- ✅ v0.2 : « Prochaine pluie » via `minutely_15` de l'endpoint générique `/v1/forecast` (modèle « best match », pas forcément AROME)
+- ⏳ Passer sur `/v1/meteofrance` (AROME France / HD, `minutely_15`, horizon 6 h, mise à jour **horaire**) — modèle numérique, **pas du radar**
+- ⏳ Météo-France **PIAF** (fusion extrapolation radar + AROME-PI, pas de 5 min, horizon 3 h, GRIB2 via portail-api.meteofrance.fr) : à valider avant dev — extraction par point possible ? clé/jeton (jeton 1 h), quotas, couverture radar en vallée alpine
+- ⏳ Message unique à priorité : pluie mesurée par la station > PIAF > AROME > modèle par défaut (« Pluie dans ~20 min », « Pas de pluie dans les 3 h »)
+- ⛔ API non publique de l'app Météo-France (« pluie dans l'heure ») : non documentée, peut casser sans préavis
 
 ## Phase 4 — Sécurité
 - ✅ Clés stockées chiffrées (AES-256, Android Keystore) ; position également chiffrée
