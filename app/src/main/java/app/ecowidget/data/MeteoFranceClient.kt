@@ -31,12 +31,16 @@ object MeteoFranceClient {
     data class TestLine(val text: String, val ok: Boolean)
 
     private const val TOKEN_URL = "https://portail-api.meteofrance.fr/token"
-    private const val API_HOST = "public-api.meteofrance.fr"
+    // Hôtes autorisés pour les données (le jeton n'est jamais envoyé ailleurs).
+    private val API_HOSTS = setOf("public-api.meteofrance.fr", "api.meteofrance.fr")
     private const val CAPS_QUERY = "service=WCS&version=2.0.1&language=eng"
 
-    // AROME-PI : adresse confirmée par des projets tiers. PIAF : adresse supposée par analogie (à confirmer).
+    // AROME-PI : adresse confirmée par des projets tiers.
     private const val AROME_PI_BASE = "https://public-api.meteofrance.fr/public/aromepi/1.0/wcs/MF-NWP-HIGHRES-AROMEPI-001-FRANCE-WCS/GetCapabilities"
-    private const val PIAF_BASE = "https://public-api.meteofrance.fr/public/piaf/1.0/wcs/MF-NWP-HIGHRES-PIAF-001-FRANCE-WCS/GetCapabilities"
+    // PIAF : le nom du service (MF-NWP-HIGHRES-PIAF-001-FRANCE-WCS) est confirmé par le portail ; le serveur
+    // affiché par le portail est « api.meteofrance.fr/pro/piaf/… » (version supposée 1.0), l'autre est une supposition.
+    private const val PIAF_PUBLIC_BASE = "https://public-api.meteofrance.fr/public/piaf/1.0/wcs/MF-NWP-HIGHRES-PIAF-001-FRANCE-WCS/GetCapabilities"
+    private const val PIAF_PRO_BASE = "https://api.meteofrance.fr/pro/piaf/1.0/wcs/MF-NWP-HIGHRES-PIAF-001-FRANCE-WCS/GetCapabilities"
 
     private const val MAX_CAPS_BYTES = 12 * 1024 * 1024
     private val APP_ID_FORMAT = Regex("^[A-Za-z0-9+/=_-]{20,512}$")
@@ -113,7 +117,7 @@ object MeteoFranceClient {
         val sampleIds: List<String>,
     )
 
-    /** Seules les adresses https://public-api.meteofrance.fr/… sont acceptées : le jeton n'est jamais envoyé ailleurs. */
+    /** Seules les adresses https://public-api.meteofrance.fr/… ou https://api.meteofrance.fr/… sont acceptées. */
     fun checkedCapsUrl(raw: String): String {
         var s = raw.trim()
         if (!s.contains("GetCapabilities", ignoreCase = true)) s = s.trimEnd('/') + "/GetCapabilities"
@@ -124,10 +128,10 @@ object MeteoFranceClient {
             throw MfException("Adresse illisible")
         }
         val ok = uri.scheme.equals("https", ignoreCase = true) &&
-            uri.host.equals(API_HOST, ignoreCase = true) &&
+            (uri.host?.lowercase() in API_HOSTS) &&
             uri.userInfo == null &&
             (uri.port == -1 || uri.port == 443)
-        if (!ok) throw MfException("Adresse attendue : https://$API_HOST/public/…")
+        if (!ok) throw MfException("Adresse attendue : https://public-api.meteofrance.fr/… ou https://api.meteofrance.fr/…")
         return s
     }
 
@@ -209,7 +213,8 @@ object MeteoFranceClient {
 
         val candidates = ArrayList<Pair<String, String>>()
         candidates += "AROME-PI" to "$AROME_PI_BASE?$CAPS_QUERY"
-        candidates += "PIAF (adresse supposée)" to "$PIAF_BASE?$CAPS_QUERY"
+        candidates += "PIAF (serveur pro, version supposée)" to "$PIAF_PRO_BASE?$CAPS_QUERY"
+        candidates += "PIAF (serveur public, supposé)" to "$PIAF_PUBLIC_BASE?$CAPS_QUERY"
         customUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { candidates += "Adresse saisie" to it }
 
         for ((name, url) in candidates) {

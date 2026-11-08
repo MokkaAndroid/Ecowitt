@@ -421,7 +421,7 @@ private fun SettingsScreen(tick: Int) {
 
             Section("Météo-France · pluie imminente (test)") {
                 Text(
-                    "Sur portail-api.meteofrance.fr : abonne-toi aux API PIAF et AROME-PI, puis « Mes API » → « Générer token » → " +
+                    "Sur portail-api.meteofrance.fr : abonne-toi aux API PIAF et AROME-PI, puis « Mes API » → « Générer token », type de token OAuth2 (pas API Key) → " +
                         "dans la commande curl, copie la longue chaîne qui suit « Basic ». C'est ton Application ID : garde-le secret.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -441,7 +441,7 @@ private fun SettingsScreen(tick: Int) {
                     onValueChange = { mfUrl = it.trim() },
                     label = { Text("Adresse GetCapabilities à tester (optionnel)") },
                     supportingText = {
-                        Text("Commence par https://public-api.meteofrance.fr/public/… (sans jeton). Utile si l'adresse PIAF supposée est introuvable.")
+                        Text("Commence par https://public-api.meteofrance.fr/… ou https://api.meteofrance.fr/… (sans jeton). Utile si une adresse supposée est introuvable.")
                     },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
