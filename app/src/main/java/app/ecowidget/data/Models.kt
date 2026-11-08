@@ -68,6 +68,15 @@ data class Derived(
     val pressTrend3h: Double?,
     val dayMin: Double?,
     val dayMax: Double?,
+    /** Pression relative mesurée (jusqu'à ~48 h selon la dernière requête). */
+    val pressSeries: List<SeriesPoint> = emptyList(),
+    /** Séries supplémentaires de la station (modes à tuiles) : vide si l'API ne les a pas renvoyées. */
+    val windSeries: List<SeriesPoint> = emptyList(),
+    val gustSeries: List<SeriesPoint> = emptyList(),
+    val humSeries: List<SeriesPoint> = emptyList(),
+    val dewSeries: List<SeriesPoint> = emptyList(),
+    /** Cumul de pluie du jour mesuré par la station (remis à zéro à minuit). */
+    val rainDaySeries: List<SeriesPoint> = emptyList(),
 )
 
 data class MetricValue(

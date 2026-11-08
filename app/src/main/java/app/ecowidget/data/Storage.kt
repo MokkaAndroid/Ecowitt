@@ -240,7 +240,70 @@ object Storage {
             .remove("w$appWidgetId.om_enabled")
             .remove("w$appWidgetId.om_metrics")
             .remove("w$appWidgetId.cfg_v")
+            .remove("w$appWidgetId.open_tile")
+            .remove("w$appWidgetId.open_tab")
+            .remove("w$appWidgetId.open_at")
             .apply()
+    }
+
+    // ---- Mode du widget (réglage global) et détail ouvert dans le widget (mode 3) ----
+
+    fun widgetMode(ctx: Context): WidgetMode = WidgetMode.fromId(plain(ctx).getInt("widget_mode", WidgetMode.CLASSIC.id))
+
+    fun setWidgetMode(ctx: Context, mode: WidgetMode) {
+        plain(ctx).edit().putInt("widget_mode", mode.id).apply()
+        // Changer de mode ferme tous les détails ouverts.
+        val p = plain(ctx)
+        val e = p.edit()
+        p.all.keys.filter { it.endsWith(".open_tile") }.forEach { k ->
+            val prefix = k.removeSuffix(".open_tile")
+            e.remove("$prefix.open_tile").remove("$prefix.open_tab").remove("$prefix.open_at")
+        }
+        e.apply()
+    }
+
+    /** Tuile ouverte dans un widget (mode 3) : identifiant de tuile, onglet, heure de la dernière interaction. */
+    data class OpenDetail(val tile: String, val tab: Int, val atMs: Long)
+
+    fun openDetail(ctx: Context, appWidgetId: Int): OpenDetail? {
+        val p = plain(ctx)
+        val tile = p.getString("w$appWidgetId.open_tile", null)?.takeIf { it.isNotBlank() } ?: return null
+        return OpenDetail(tile, p.getInt("w$appWidgetId.open_tab", 0), p.getLong("w$appWidgetId.open_at", 0L))
+    }
+
+    /** `tile == null` referme le détail. L'heure est remise à zéro à chaque appel (le retour auto repart de 30 s). */
+    fun setOpenDetail(ctx: Context, appWidgetId: Int, tile: String?, tab: Int = 0) {
+        val e = plain(ctx).edit()
+        if (tile == null) {
+            e.remove("w$appWidgetId.open_tile").remove("w$appWidgetId.open_tab").remove("w$appWidgetId.open_at")
+        } else {
+            e.putString("w$appWidgetId.open_tile", tile)
+                .putInt("w$appWidgetId.open_tab", tab)
+                .putLong("w$appWidgetId.open_at", System.currentTimeMillis())
+        }
+        e.apply()
+    }
+
+    /** Referme les détails inactifs depuis au moins `maxAgeMs`. Retourne (nombre fermés, délai avant la prochaine échéance ou null). */
+    fun closeExpiredDetails(ctx: Context, maxAgeMs: Long): Pair<Int, Long?> {
+        val p = plain(ctx)
+        val now = System.currentTimeMillis()
+        var closed = 0
+        var nextIn: Long? = null
+        val e = p.edit()
+        p.all.keys.filter { it.endsWith(".open_tile") }.forEach { k ->
+            val prefix = k.removeSuffix(".open_tile")
+            val age = now - p.getLong("$prefix.open_at", 0L)
+            if (age >= maxAgeMs) {
+                e.remove("$prefix.open_tile").remove("$prefix.open_tab").remove("$prefix.open_at")
+                closed++
+            } else {
+                val left = maxAgeMs - age
+                nextIn = nextIn?.let { minOf(it, left) } ?: left
+            }
+        }
+        e.apply()
+        return closed to nextIn
     }
 
     /** Configurations de tous les widgets posés : sert à demander à Open-Meteo l'union des infos choisies. */
@@ -268,8 +331,11 @@ object Storage {
     fun historyAt(ctx: Context): Long = plain(ctx).getLong("history_at", 0L)
     fun historyError(ctx: Context): String? = plain(ctx).getString("history_error", null)
 
-    fun saveHistory(ctx: Context, raw: String, atMs: Long) {
-        plain(ctx).edit().putString("history_raw", raw).putLong("history_at", atMs).apply()
+    /** true si la dernière requête d'historique a demandé aussi vent, pluie et humidité (modes à tuiles). */
+    fun historyExtended(ctx: Context): Boolean = plain(ctx).getBoolean("history_ext", false)
+
+    fun saveHistory(ctx: Context, raw: String, atMs: Long, extended: Boolean = false) {
+        plain(ctx).edit().putString("history_raw", raw).putLong("history_at", atMs).putBoolean("history_ext", extended).apply()
     }
 
     fun saveHistoryError(ctx: Context, message: String?) = putOrRemove(ctx, "history_error", message)

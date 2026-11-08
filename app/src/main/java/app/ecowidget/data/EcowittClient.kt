@@ -42,34 +42,50 @@ object EcowittClient {
     )
 
     /**
-     * Historique des ~30 dernières heures (température extérieure + pression relative).
+     * Historique : température extérieure + pression relative sur ~30 h. En mode étendu (modes à tuiles), on demande
+     * aussi vent, pluie et humidité, sur ~50 h ; si l'API refuse, on retombe sur la requête de base.
      * Résolution 30 min ; si l'API la refuse, on retombe sur la résolution automatique.
      */
-    fun fetchHistory(c: Credentials, nowSec: Long): JSONObject {
+    fun fetchHistory(c: Credentials, nowSec: Long, extended: Boolean = false): JSONObject {
         val zone = ZoneId.systemDefault()
-        // Fenêtre large (-30 h / +2 h) : l'API peut interpréter les dates dans un autre fuseau,
+        // Fenêtre large (+2 h) : l'API peut interpréter les dates dans un autre fuseau,
         // les timestamps de la réponse sont absolus et filtrés ensuite.
-        val start = DATE_FORMAT.format(Instant.ofEpochSecond(nowSec - 30 * 3600).atZone(zone))
+        val back = if (extended) 50 * 3600L else 30 * 3600L
+        val start = DATE_FORMAT.format(Instant.ofEpochSecond(nowSec - back).atZone(zone))
         val end = DATE_FORMAT.format(Instant.ofEpochSecond(nowSec + 2 * 3600).atZone(zone))
-        fun call(cycle: String) = get(
-            path = "api/v3/device/history",
-            creds = c,
-            withMac = true,
-            params = mapOf(
+        fun call(cycle: String, groups: String): JSONObject {
+            val params = mutableMapOf(
                 "start_date" to start,
                 "end_date" to end,
                 "cycle_type" to cycle,
-                "call_back" to "outdoor,pressure",
+                "call_back" to groups,
                 "temp_unitid" to "1",
                 "pressure_unitid" to "3",
-            ),
-        )
-        return try {
-            call("30min")
-        } catch (e: ApiException) {
-            call("auto")
+            )
+            if (groups != BASE_GROUPS) {
+                params["wind_speed_unitid"] = "7"
+                params["rainfall_unitid"] = "12"
+            }
+            return get(path = "api/v3/device/history", creds = c, withMac = true, params = params)
         }
+        val attempts = buildList {
+            if (extended) add("30min" to EXT_GROUPS)
+            add("30min" to BASE_GROUPS)
+            add("auto" to BASE_GROUPS)
+        }
+        var last: ApiException? = null
+        for ((cycle, groups) in attempts) {
+            try {
+                return call(cycle, groups)
+            } catch (e: ApiException) {
+                last = e
+            }
+        }
+        throw last ?: ApiException("Historique indisponible")
     }
+
+    private const val BASE_GROUPS = "outdoor,pressure"
+    private const val EXT_GROUPS = "outdoor,pressure,wind,rainfall"
 
     /** Cherche la station dans le compte pour en tirer sa position (latitude / longitude). */
     fun fetchStationLocation(c: Credentials): Location? {

@@ -56,6 +56,7 @@ import app.ecowidget.data.Place
 import app.ecowidget.data.SnapshotParser
 import app.ecowidget.data.Storage
 import app.ecowidget.data.WeatherRepository
+import app.ecowidget.data.WidgetMode
 import app.ecowidget.update.UpdateScheduler
 import app.ecowidget.widget.WidgetRefresh
 import app.ecowidget.widget.WeatherWidgetReceiver
@@ -181,6 +182,7 @@ private fun SettingsScreen(tick: Int) {
     var mfBusy by remember { mutableStateOf(false) }
     var mfLines by remember { mutableStateOf<List<MeteoFranceClient.TestLine>>(emptyList()) }
     var interval by remember { mutableIntStateOf(Storage.intervalMinutes(ctx)) }
+    var widgetMode by remember { mutableStateOf(Storage.widgetMode(ctx)) }
 
     var location by remember { mutableStateOf(Storage.location(ctx)) }
     var query by remember { mutableStateOf("") }
@@ -609,6 +611,45 @@ private fun SettingsScreen(tick: Int) {
                         line.text,
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (line.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
+            Section("Mode du widget") {
+                Text(
+                    "Choisis la présentation de tes widgets :",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                WidgetMode.entries.forEach { m ->
+                    FilterChip(
+                        selected = widgetMode == m,
+                        onClick = {
+                            if (widgetMode != m) {
+                                widgetMode = m
+                                Storage.setWidgetMode(ctx, m)
+                                scope.launch {
+                                    // Les modes à tuiles demandent 8 jours de prévisions et un historique étendu.
+                                    WeatherRepository.refresh(ctx, force = true)
+                                    WidgetRefresh.all(ctx)
+                                    diagTick++
+                                }
+                            }
+                        },
+                        label = { Text(m.label) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Text(
+                    widgetMode.hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (widgetMode != WidgetMode.CLASSIC) {
+                    Text(
+                        "Les tuiles tiennent à partir de 4×2 cases (5 tuiles) ; en 4×3 ou plus, les 7 tuiles s'affichent. " +
+                            "Le détail dans le widget demande au moins 4×3 ; en dessous, un appui ouvre la fiche plein écran.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

@@ -49,6 +49,8 @@ import androidx.glance.unit.ColorProvider
 import app.ecowidget.R
 import app.ecowidget.data.CachedState
 import app.ecowidget.data.Derived
+import app.ecowidget.data.DetailData
+import app.ecowidget.data.DetailInputs
 import app.ecowidget.data.Forecast
 import app.ecowidget.data.HourPoint
 import app.ecowidget.data.Metric
@@ -61,6 +63,7 @@ import app.ecowidget.data.WeatherCodes
 import app.ecowidget.data.WeatherRepository
 import app.ecowidget.data.WeatherSnapshot
 import app.ecowidget.data.WidgetConfig
+import app.ecowidget.data.WidgetMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.time.Instant
 import java.time.LocalDate
@@ -84,7 +87,24 @@ class WeatherWidget : GlanceAppWidget() {
             // ne rappelle pas provideGlance, elle se contente de recomposer quand ce compteur change.
             val version by WidgetRefresh.version.collectAsState()
             val loaded = remember(version) { load(context, appWidgetId) }
-            WidgetBody(loaded.config, loaded.state, loaded.derived, loaded.info)
+            if (loaded.mode == WidgetMode.CLASSIC) {
+                WidgetBody(loaded.config, loaded.state, loaded.derived, loaded.info)
+            } else {
+                CompactBody(
+                    appWidgetId = appWidgetId,
+                    mode = loaded.mode,
+                    config = loaded.config,
+                    state = loaded.state,
+                    inputs = DetailInputs(
+                        snap = loaded.state.snapshot,
+                        derived = loaded.derived,
+                        forecast = loaded.info.forecast,
+                        altM = loaded.altitude,
+                    ),
+                    openDetail = loaded.open,
+                    place = loaded.info.place,
+                )
+            }
         }
     }
 
@@ -93,19 +113,32 @@ class WeatherWidget : GlanceAppWidget() {
         val state: CachedState,
         val derived: Derived?,
         val info: ForecastInfo,
+        val mode: WidgetMode,
+        val altitude: Double?,
+        val open: Storage.OpenDetail?,
     )
 
     private fun load(context: Context, appWidgetId: Int): Loaded {
         val config = Storage.widgetConfig(context, appWidgetId)
+        val mode = Storage.widgetMode(context)
         val state = WeatherRepository.cached(context)
         val derived = WeatherRepository.derived(context, state.snapshot)
+        val location = Storage.location(context)
         val info = ForecastInfo(
-            forecast = if (config.forecastEnabled) WeatherRepository.forecast(context) else null,
+            // Les modes à tuiles ont toujours besoin des prévisions, même si le bloc « prévisions » du mode complet est coupé.
+            forecast = if (config.forecastEnabled || mode != WidgetMode.CLASSIC) WeatherRepository.forecast(context) else null,
             error = Storage.forecastError(context),
-            place = Storage.location(context)?.label,
-            hasLocation = Storage.location(context) != null,
+            place = location?.label,
+            hasLocation = location != null,
         )
-        return Loaded(config, state, derived, info)
+        // Détail ouvert dans le widget (mode 3) : ignoré s'il est resté sans interaction plus de 30 s.
+        val open = if (mode == WidgetMode.TILES_INLINE) {
+            Storage.openDetail(context, appWidgetId)
+                ?.takeIf { System.currentTimeMillis() - it.atMs < DetailData.AUTO_CLOSE_MS }
+        } else {
+            null
+        }
+        return Loaded(config, state, derived, info, mode, location?.elevation, open)
     }
 }
 
@@ -141,7 +174,7 @@ class ToggleAltitudeCallback : ActionCallback {
 
 // ───────────────────────────── Modèles d'affichage ─────────────────────────────
 
-private data class Status(val text: String, val warn: Boolean)
+internal data class Status(val text: String, val warn: Boolean)
 
 private data class ForecastInfo(
     val forecast: Forecast?,
@@ -174,7 +207,7 @@ private const val FACT_ROW_H = 38f
 private const val MAX_STATION_ROWS = 3
 private const val MAX_FACT_ROWS = 2
 
-private fun statusOf(state: CachedState, showTime: Boolean): Status {
+internal fun statusOf(state: CachedState, showTime: Boolean): Status {
     val snap = state.snapshot ?: return Status("", true)
     val obsMs = snap.observedAtSec?.times(1000) ?: state.fetchedAtMs
     val ageMin = (System.currentTimeMillis() - obsMs) / 60_000
@@ -259,7 +292,7 @@ private fun WidgetBody(config: WidgetConfig, state: CachedState, derived: Derive
 }
 
 @Composable
-private fun EmptyState(p: WidgetTheme, state: CachedState) {
+internal fun EmptyState(p: WidgetTheme, state: CachedState) {
     Column(
         modifier = GlanceModifier.fillMaxSize(),
         verticalAlignment = Alignment.CenterVertically,

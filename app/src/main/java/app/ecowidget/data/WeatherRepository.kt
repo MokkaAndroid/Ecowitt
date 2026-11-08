@@ -85,8 +85,11 @@ object WeatherRepository {
                 // Les appels Ecowitt sont enchaînés (pas en parallèle) pour ménager leur limite de débit.
                 val ecowitt = async {
                     val err = refreshLive(app, creds)
-                    if (err == null && due(Storage.historyAt(app), HISTORY_TTL_MS, force, now)) {
-                        refreshHistory(app, creds, now)
+                    val extended = Storage.widgetMode(app) != WidgetMode.CLASSIC
+                    // Passage à un mode à tuiles : l'historique en cache n'a ni vent, ni pluie, ni humidité, on le redemande.
+                    val needsExt = extended && !Storage.historyExtended(app)
+                    if (err == null && (needsExt || due(Storage.historyAt(app), HISTORY_TTL_MS, force, now))) {
+                        refreshHistory(app, creds, now, extended)
                     }
                     err
                 }
@@ -120,14 +123,14 @@ object WeatherRepository {
         }
     }
 
-    private fun refreshHistory(app: Context, creds: Credentials, now: Long) {
+    private fun refreshHistory(app: Context, creds: Credentials, now: Long, extended: Boolean) {
         try {
-            val data = EcowittClient.fetchHistory(creds, now / 1000)
+            val data = EcowittClient.fetchHistory(creds, now / 1000, extended)
             val points = HistoryParser.series(data, "outdoor", "temperature").size
             if (points == 0) {
                 Storage.saveHistoryError(app, "Historique reçu mais sans température (structure inattendue)")
             } else {
-                Storage.saveHistory(app, data.toString(), now)
+                Storage.saveHistory(app, data.toString(), now, extended)
                 Storage.saveHistoryError(app, null)
             }
         } catch (e: CancellationException) {
@@ -140,7 +143,9 @@ object WeatherRepository {
     /** Toutes les infos Open-Meteo demandées par les widgets posés (union). */
     fun currentNeeds(app: Context): Needs {
         val ids = Storage.allWidgetConfigs(app).filter { it.forecastEnabled }.flatMap { it.forecastMetrics }
-        return OmCatalog.needs(ids)
+        val base = OmCatalog.needs(ids)
+        // Modes à tuiles : les fiches détaillées ont besoin de 8 jours et de séries horaires supplémentaires.
+        return if (Storage.widgetMode(app) != WidgetMode.CLASSIC) base + DetailData.NEEDS else base
     }
 
     private fun refreshOpenMeteo(app: Context, now: Long, force: Boolean) {

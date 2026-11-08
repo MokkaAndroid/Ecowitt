@@ -65,6 +65,12 @@ object HistoryParser {
             pressTrend3h = pressTrend,
             dayMin = today.minOfOrNull { it.v },
             dayMax = today.maxOfOrNull { it.v },
+            pressSeries = press,
+            windSeries = series(data, "wind", "wind_speed"),
+            gustSeries = series(data, "wind", "wind_gust"),
+            humSeries = series(data, "outdoor", "humidity"),
+            dewSeries = series(data, "outdoor", "dew_point"),
+            rainDaySeries = series(data, "rainfall", "daily"),
         )
     }
 

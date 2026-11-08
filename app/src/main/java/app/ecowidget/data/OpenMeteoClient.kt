@@ -46,7 +46,7 @@ object OpenMeteoClient {
     private val BASE_HOURLY = setOf("temperature_2m", "weather_code", "is_day", "precipitation_probability")
     private val BASE_DAILY = setOf("temperature_2m_max", "temperature_2m_min", "sunrise", "sunset")
 
-    private fun builder(host: String, path: String, loc: Location, withElevation: Boolean): Uri.Builder {
+    private fun builder(host: String, path: String, loc: Location, withElevation: Boolean, days: Int = 2): Uri.Builder {
         val b = Uri.Builder()
             .scheme("https")
             .authority(host)
@@ -56,7 +56,7 @@ object OpenMeteoClient {
             .appendQueryParameter("longitude", "%.2f".format(java.util.Locale.ROOT, Math.round(loc.longitude * 100.0) / 100.0))
             .appendQueryParameter("timezone", "auto")
             .appendQueryParameter("timeformat", "unixtime")
-            .appendQueryParameter("forecast_days", "2")
+            .appendQueryParameter("forecast_days", days.toString())
         if (withElevation) {
             loc.elevation?.let { b.appendQueryParameter("elevation", "%.0f".format(java.util.Locale.ROOT, it)) }
         }
@@ -65,7 +65,7 @@ object OpenMeteoClient {
 
     private fun requestForecast(loc: Location, needs: Needs): JSONObject {
         // Sans altitude : valeurs du point de prévision ; la correction d'altitude est faite par [AltitudeCorrection].
-        val b = builder("api.open-meteo.com", "v1/forecast", loc, false)
+        val b = builder("api.open-meteo.com", "v1/forecast", loc, false, needs.days)
             .appendQueryParameter("current", (BASE_CURRENT + needs.current).sorted().joinToString(","))
             .appendQueryParameter("hourly", (BASE_HOURLY + needs.hourly).sorted().joinToString(","))
             .appendQueryParameter("daily", (BASE_DAILY + needs.daily).sorted().joinToString(","))
@@ -83,7 +83,7 @@ object OpenMeteoClient {
             requestForecast(loc, needs)
         } catch (e: OpenMeteoException) {
             if (e.httpCode != 400 || !needs.hasForecastExtras) throw e
-            requestForecast(loc, Needs.EMPTY).also { it.put(FALLBACK_KEY, e.reason ?: "une variable est refusée") }
+            requestForecast(loc, Needs.EMPTY.copy(days = needs.days)).also { it.put(FALLBACK_KEY, e.reason ?: "une variable est refusée") }
         }
         return json.also { it.put(AltitudeCorrection.RAW_KEY, true) }
     }

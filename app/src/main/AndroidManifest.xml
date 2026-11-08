@@ -32,6 +32,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Fiche détaillée plein écran (mode « Tuiles + page »), ouverte depuis le widget -->
+        <activity
+            android:name=".ui.DetailActivity"
+            android:exported="false"
+            android:launchMode="singleTask" />
+
         <receiver
             android:name=".widget.WeatherWidgetReceiver"
             android:exported="true">

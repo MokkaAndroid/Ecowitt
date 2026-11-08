@@ -124,9 +124,15 @@ data class Needs(
     val hourly: Set<String>,
     val daily: Set<String>,
     val air: Set<String>,
+    /** Nombre de jours de prévisions demandés (2 en temps normal, 8 pour les fiches détaillées). */
+    val days: Int = 2,
 ) {
     fun forecastSignature(): String =
-        "c:${current.sorted().joinToString(",")}|h:${hourly.sorted().joinToString(",")}|d:${daily.sorted().joinToString(",")}"
+        "c:${current.sorted().joinToString(",")}|h:${hourly.sorted().joinToString(",")}|d:${daily.sorted().joinToString(",")}|n:$days"
+
+    /** Union de deux besoins (variables des deux, horizon le plus long). */
+    operator fun plus(o: Needs): Needs =
+        Needs(current + o.current, hourly + o.hourly, daily + o.daily, air + o.air, maxOf(days, o.days))
 
     fun airSignature(): String = air.sorted().joinToString(",")
 
@@ -154,6 +160,14 @@ class RawData(private val json: JSONObject, val nowSec: Long) {
 
     fun unit(section: OmSection, variable: String): String? =
         json.optJSONObject(section.key + "_units")?.optString(variable)?.takeIf { it.isNotBlank() }
+
+    /** Série journalière d'une variable : (début du jour en secondes, valeur). Vide si la variable n'a pas été demandée. */
+    fun dailySeries(variable: String): List<Pair<Long, Double?>> {
+        val d = json.optJSONObject("daily") ?: return emptyList()
+        val times = d.optJSONArray("time") ?: return emptyList()
+        val values = d.optJSONArray(variable) ?: return emptyList()
+        return List(times.length()) { i -> times.optLong(i) to values.dbl(i) }
+    }
 
     /** Série horaire d'une variable : (instant en secondes, valeur). Vide si la variable n'a pas été demandée. */
     fun hourlySeries(variable: String): List<Pair<Long, Double?>> {
