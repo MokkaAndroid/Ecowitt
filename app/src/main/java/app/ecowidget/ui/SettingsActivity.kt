@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.updateAll
+import app.ecowidget.data.AddressClient
 import app.ecowidget.data.Credentials
 import app.ecowidget.data.EcowittClient
 import app.ecowidget.data.HistoryParser
@@ -64,6 +65,7 @@ import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.math.roundToInt
 
 class SettingsActivity : ComponentActivity() {
@@ -172,6 +174,9 @@ private fun SettingsScreen(tick: Int) {
     var query by remember { mutableStateOf("") }
     var places by remember { mutableStateOf<List<Place>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
+    var addr by remember { mutableStateOf("") }
+    var addrBusy by remember { mutableStateOf(false) }
+    var coords by remember { mutableStateOf("") }
     var locBusy by remember { mutableStateOf(false) }
     var locMessage by remember { mutableStateOf<String?>(null) }
     var altText by remember { mutableStateOf(location?.elevation?.roundToInt()?.toString() ?: "") }
@@ -305,7 +310,7 @@ private fun SettingsScreen(tick: Int) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    "Seules des coordonnées arrondies à ~1 km sont envoyées à Open-Meteo, jamais tes clés Ecowitt.",
+                    "Open-Meteo ne reçoit qu'une position arrondie à ~1 km, jamais tes clés Ecowitt. Ta position exacte reste chiffrée sur le téléphone.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -365,6 +370,61 @@ private fun SettingsScreen(tick: Int) {
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (searching) "Recherche…" else "Rechercher") }
 
+                OutlinedTextField(
+                    value = addr,
+                    onValueChange = { addr = it },
+                    label = { Text("Ou une adresse précise (France)") },
+                    supportingText = {
+                        Text("Envoyée au service public de géocodage de l'IGN ; seules les coordonnées sont conservées, chiffrées.")
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    enabled = !addrBusy && addr.trim().length >= 5,
+                    onClick = {
+                        addrBusy = true
+                        locMessage = null
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) { runCatching { AddressClient.search(addr) } }
+                            places = result.getOrDefault(emptyList())
+                            val err = result.exceptionOrNull()
+                            if (err != null) {
+                                locMessage = "Échec : " + AddressClient.describe(err)
+                            } else if (places.isEmpty()) {
+                                locMessage = "Adresse introuvable : indique le numéro, la rue et la commune."
+                            }
+                            addrBusy = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (addrBusy) "Recherche…" else "Chercher l'adresse") }
+
+                OutlinedTextField(
+                    value = coords,
+                    onValueChange = { coords = it },
+                    label = { Text("Ou des coordonnées (latitude, longitude)") },
+                    supportingText = { Text("Ex. 45.5012, 6.3045. Tu peux aussi coller un lien Google Maps.") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedButton(
+                    enabled = AddressClient.parseCoordinates(coords) != null,
+                    onClick = {
+                        AddressClient.parseCoordinates(coords)?.let { (lat, lon) ->
+                            val label = String.format(Locale.ROOT, "%.4f, %.4f", lat, lon)
+                            Storage.saveLocation(ctx, Location(lat, lon, label, location?.elevation, "manuel"))
+                            location = Storage.location(ctx)
+                            altText = location?.elevation?.roundToInt()?.toString() ?: ""
+                            places = emptyList()
+                            locMessage = "Position enregistrée : $label"
+                            UpdateScheduler.kick(ctx)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Utiliser ces coordonnées") }
+
                 places.forEach { place ->
                     Column(
                         modifier = Modifier
@@ -372,7 +432,7 @@ private fun SettingsScreen(tick: Int) {
                             .clickable {
                                 Storage.saveLocation(
                                     ctx,
-                                    Location(place.latitude, place.longitude, place.label, place.elevation, "manuel"),
+                                    Location(place.latitude, place.longitude, place.shortLabel ?: place.label, place.elevation, "manuel"),
                                 )
                                 location = Storage.location(ctx)
                                 altText = location?.elevation?.roundToInt()?.toString() ?: ""

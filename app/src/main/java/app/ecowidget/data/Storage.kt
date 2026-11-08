@@ -135,11 +135,11 @@ object Storage {
     }
 
     fun saveLocation(ctx: Context, loc: Location) {
-        // Coordonnées arrondies à 0,01° (~1 km) : suffisant pour un modèle météo, et on ne
-        // transmet pas la position exacte de la maison à un service tiers.
+        // Position exacte, chiffrée sur le téléphone. Les services tiers n'en reçoivent qu'une version
+        // arrondie à ~1 km (Open-Meteo) ou la maille de 0,01° (Météo-France).
         securePrefs(ctx).edit()
-            .putString("loc_lat", (Math.round(loc.latitude * 100.0) / 100.0).toString())
-            .putString("loc_lon", (Math.round(loc.longitude * 100.0) / 100.0).toString())
+            .putString("loc_lat", loc.latitude.toString())
+            .putString("loc_lon", loc.longitude.toString())
             .putString("loc_label", loc.label)
             .putString("loc_source", loc.source)
             .apply {

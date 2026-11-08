@@ -332,7 +332,11 @@ object MeteoFranceClient {
             return
         }
 
-        val half = 0.025
+        // La zone demandée est alignée sur la maille de 0,01° (le serveur ne voit que la maille, pas la position exacte) ;
+        // le pixel de la station est choisi ensuite localement avec la position exacte.
+        val half = 0.03
+        val cellLat = Math.round(loc.latitude * 100.0) / 100.0
+        val cellLon = Math.round(loc.longitude * 100.0) / 100.0
         fun deg(v: Double) = String.format(Locale.US, "%.4f", v)
         for (t in times) {
             val label = "PIAF · ${CLOCK.format(t)}" + (runAt?.let { " (+${(t.epochSecond - it.epochSecond) / 60} min)" } ?: "")
@@ -340,8 +344,8 @@ object MeteoFranceClient {
             try {
                 val url = "$base/GetCoverage?service=WCS&version=2.0.1&coverageid=${ref.id}" +
                     "&subset=time(${DateTimeFormatter.ISO_INSTANT.format(t)})" +
-                    "&subset=lat(${deg(loc.latitude - half)},${deg(loc.latitude + half)})" +
-                    "&subset=long(${deg(loc.longitude - half)},${deg(loc.longitude + half)})" +
+                    "&subset=lat(${deg(cellLat - half)},${deg(cellLat + half)})" +
+                    "&subset=long(${deg(cellLon - half)},${deg(cellLon + half)})" +
                     "&format=image/tiff"
                 val bytes = getBytes(url, token, "image/tiff", 2 * 1024 * 1024)
                 raw = bytes

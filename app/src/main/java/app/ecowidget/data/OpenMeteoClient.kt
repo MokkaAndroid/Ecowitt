@@ -18,6 +18,8 @@ data class Place(
     val latitude: Double,
     val longitude: Double,
     val elevation: Double?,
+    /** Libellé court à enregistrer (ex. la commune d'une adresse) ; null = [label]. */
+    val shortLabel: String? = null,
 ) {
     val label: String
         get() = listOfNotNull(name, admin1, country).distinct().joinToString(", ")
@@ -49,8 +51,9 @@ object OpenMeteoClient {
             .scheme("https")
             .authority(host)
             .appendEncodedPath(path)
-            .appendQueryParameter("latitude", "%.4f".format(java.util.Locale.ROOT, loc.latitude))
-            .appendQueryParameter("longitude", "%.4f".format(java.util.Locale.ROOT, loc.longitude))
+            // Open-Meteo ne reçoit qu'une position arrondie à 0,01° (~1 km) : la position exacte reste chiffrée sur le téléphone.
+            .appendQueryParameter("latitude", "%.2f".format(java.util.Locale.ROOT, Math.round(loc.latitude * 100.0) / 100.0))
+            .appendQueryParameter("longitude", "%.2f".format(java.util.Locale.ROOT, Math.round(loc.longitude * 100.0) / 100.0))
             .appendQueryParameter("timezone", "auto")
             .appendQueryParameter("timeformat", "unixtime")
             .appendQueryParameter("forecast_days", "2")
