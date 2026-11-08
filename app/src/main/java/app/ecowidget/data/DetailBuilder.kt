@@ -208,7 +208,7 @@ object DetailBuilder {
         val rainTom = dayAt(daily(i, "precipitation_sum"), i, 1)
         out.add(
             TileSummary(
-                tile = Tile.FORECAST, label = "Demain", short = "Demain",
+                tile = Tile.FORECAST, tab = 1, label = "Demain", short = "Demain",
                 value = if (maxTom != null && minTom != null) Metric.fmt(maxTom, 0) + "°/" + Metric.fmt(minTom, 0) + "°" else DASH,
                 sub = when {
                     snowTom != null && snowTom >= 0.5 -> "neige " + Metric.fmt(snowTom, 0) + " cm"

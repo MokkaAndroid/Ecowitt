@@ -30,7 +30,6 @@ import androidx.glance.layout.Column
 import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -45,7 +44,7 @@ import app.ecowidget.data.Alert
 import app.ecowidget.data.CachedState
 import app.ecowidget.data.DetailBuilder
 import app.ecowidget.data.DetailInputs
-import app.ecowidget.data.Stat
+import app.ecowidget.data.Hue
 import app.ecowidget.data.Storage
 import app.ecowidget.data.Tile
 import app.ecowidget.data.TileSummary
@@ -85,11 +84,14 @@ class CloseTileCallback : ActionCallback {
 // Hauteurs (dp) servant à décider de la mise en page.
 private const val PAD_X = 10
 private const val PAD_Y = 8
-private const val GAP = 4f
-private const val DETAIL_HEAD_H = 28f
 
-/** Sous cette hauteur, le détail ne tient pas dans le widget : un appui ouvre la fiche plein écran. */
-private const val INLINE_MIN_H = 100f
+// Détail intégré (maquettes W3) : en-tête 28 dp, 6 dp d'écart, carte à 8 dp de marge intérieure.
+private const val W3_HEAD_H = 28f
+private const val W3_GAP = 6f
+private const val W3_PAD = 8f
+
+/** Sous cette hauteur, le détail (en-tête 28 + corps 122 d'après les maquettes) ne tient pas : un appui ouvre la fiche plein écran. */
+private const val INLINE_MIN_H = 150f
 
 /** Ouvre la fiche plein écran sur un sujet et un onglet. */
 @Composable
@@ -124,7 +126,7 @@ internal fun CompactBody(
     val raining = snap?.isRaining == true
     val size = LocalSize.current
     val inlineOk = mode == WidgetMode.TILES_INLINE && size.height.value >= INLINE_MIN_H
-    val openTile = if (inlineOk) Tile.fromId(openDetail?.tile) else null
+    val openTile = if (inlineOk) Tile.fromId(openDetail?.tile)?.takeIf { W3Pages.has(it) } else null
 
     // Détail ouvert : un appui sur le fond prolonge seulement le délai (pas de rechargement réseau).
     val rootAction: Action = if (openTile != null) {
@@ -190,7 +192,7 @@ private fun TilesView(
     val full = fullTileH >= FULL_MIN_TILE_H && availW >= 240f
 
     @Composable
-    fun open(s: TileSummary): Action = if (inlineMode) {
+    fun open(s: TileSummary): Action = if (inlineMode && W3Pages.has(s.tile)) {
         actionRunCallback<OpenTileCallback>(actionParametersOf(KEY_TILE to s.tile.id, KEY_TAB to s.tab.toString()))
     } else {
         detailAction(s.tile.id, s.tab, appWidgetId)
@@ -447,132 +449,86 @@ private fun ShortTile(p: WidgetTheme, s: TileSummary, accent: Color, action: Act
 @Composable
 private fun DetailView(appWidgetId: Int, p: WidgetTheme, inputs: DetailInputs, tile: Tile, tabIndex: Int) {
     val size = LocalSize.current
-    val density = LocalContext.current.resources.displayMetrics.density
-    val fiche = DetailBuilder.fiche(tile, inputs)
-    val tab = tabIndex.coerceIn(0, fiche.pages.size - 1)
-    val page = fiche.pages[tab]
+    val ctx = LocalContext.current
+    val density = ctx.resources.displayMetrics.density
+    val hue = W3Pages.hue(tile)
+    val labels = W3Pages.tabs(tile)
+    val tab = tabIndex.coerceIn(0, labels.size - 1)
 
     val availW = size.width.value - 2f * PAD_X
     val availH = size.height.value - 2f * PAD_Y
-    val bodyH = availH - DETAIL_HEAD_H - GAP
-    val statsW = if (availW < 200f) 62f else 84f
-    val pad = 6f
-    val chartW = availW - 2f * pad - statsW - 6f
-    val chartH = bodyH - 2f * pad
-    val statCount = ((bodyH - 2f * pad) / 24f).toInt().coerceIn(1, 4)
+    val bodyH = availH - W3_HEAD_H - W3_GAP
+    val innerW = availW - 2f * W3_PAD
+    val innerH = bodyH - 2f * W3_PAD
 
-    val chart = page.chart?.let { spec ->
-        DetailCharts.render(
-            spec = spec,
-            widthPx = (chartW * density).toInt(),
-            heightPx = (chartH * density).toInt(),
-            density = density,
-            c = ChartColors.of(p),
-        )
-    }
+    // En-tête : retour (28) · icône (18) · onglets · agrandir (28). Si ça déborde, on serre les onglets puis on retire l'icône.
+    var chipPad = 8f
+    var showIcon = true
+    fun need(): Float =
+        28f + 5f + (if (showIcon) 18f + 5f else 0f) + labels.sumOf { W3Pages.chipWidthDp(it, density, chipPad).toDouble() }.toFloat() + 5f + 28f
+    if (need() > availW) chipPad = 5f
+    if (need() > availW) showIcon = false
+
+    val body = W3Pages.body(ctx, tile, tab, inputs, innerW, innerH, density)
 
     Column(modifier = GlanceModifier.fillMaxSize()) {
-        // En-tête : retour, sujet, onglets, agrandir.
-        Row(modifier = GlanceModifier.fillMaxWidth().height(DETAIL_HEAD_H.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(R.drawable.ic_back, p.text, actionRunCallback<CloseTileCallback>())
-            if (availW >= 215f) {
+        Row(modifier = GlanceModifier.fillMaxWidth().height(W3_HEAD_H.dp), verticalAlignment = Alignment.CenterVertically) {
+            RoundButton(R.drawable.mk_back, 16f, Hue.TXT, actionRunCallback<CloseTileCallback>())
+            Spacer(modifier = GlanceModifier.width(5.dp))
+            if (showIcon) {
                 Image(
-                    provider = ImageProvider(tile.icon),
+                    provider = ImageProvider(W3Pages.icon(tile)),
                     contentDescription = null,
-                    modifier = GlanceModifier.size(14.dp),
-                    colorFilter = ColorFilter.tint(ColorProvider(p.accent)),
+                    modifier = GlanceModifier.size(18.dp),
+                    colorFilter = ColorFilter.tint(ColorProvider(Color(hue.c))),
                 )
-                Spacer(modifier = GlanceModifier.width(4.dp))
+                Spacer(modifier = GlanceModifier.width(5.dp))
             }
-            fiche.pages.forEachIndexed { k, pg ->
-                TabChip(
-                    p = p,
-                    label = pg.tab,
-                    selected = k == tab,
-                    action = actionRunCallback<OpenTileCallback>(actionParametersOf(KEY_TILE to tile.id, KEY_TAB to k.toString())),
+            labels.forEachIndexed { k, label ->
+                Image(
+                    provider = ImageProvider(W3Pages.chip(label, k == tab, hue, density, chipPad)),
+                    contentDescription = label,
+                    modifier = GlanceModifier
+                        .width(W3Pages.chipWidthDp(label, density, chipPad).dp)
+                        .height(26.dp)
+                        .clickable(actionRunCallback<OpenTileCallback>(actionParametersOf(KEY_TILE to tile.id, KEY_TAB to k.toString()))),
+                    contentScale = ContentScale.FillBounds,
                 )
             }
             Spacer(modifier = GlanceModifier.defaultWeight())
-            IconButton(
-                R.drawable.ic_expand,
-                p.muted,
-                detailAction(tile.id, tab, appWidgetId),
+            RoundButton(R.drawable.mk_expand, 14f, Hue.MUTED, detailAction(tile.id, tab, appWidgetId))
+        }
+        Spacer(modifier = GlanceModifier.height(W3_GAP.dp))
+        Box(
+            modifier = GlanceModifier
+                .fillMaxWidth()
+                .height(bodyH.dp)
+                .background(ImageProvider(R.drawable.w3_card))
+                .padding(W3_PAD.dp),
+        ) {
+            Image(
+                provider = ImageProvider(body),
+                contentDescription = null,
+                modifier = GlanceModifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds,
             )
         }
-        Spacer(modifier = GlanceModifier.height(GAP.dp))
-        Row(
-            modifier = GlanceModifier.fillMaxWidth().height(bodyH.dp).background(ImageProvider(p.card)).padding(pad.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = GlanceModifier.width(statsW.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                page.stats.take(statCount).forEach { st -> StatBlock(p, st) }
-            }
-            Spacer(modifier = GlanceModifier.width(6.dp))
-            if (chart != null) {
-                Image(
-                    provider = ImageProvider(chart),
-                    contentDescription = null,
-                    modifier = GlanceModifier.defaultWeight().height(chartH.dp),
-                    contentScale = ContentScale.FillBounds,
-                )
-            } else {
-                Text(
-                    text = page.note ?: "Données indisponibles",
-                    style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
-                    maxLines = 4,
-                    modifier = GlanceModifier.defaultWeight(),
-                )
-            }
-        }
     }
 }
 
+/** Bouton rond de 28 dp des maquettes (fond de carte, icône teintée). */
 @Composable
-private fun StatBlock(p: WidgetTheme, st: Stat) {
-    Column(modifier = GlanceModifier.fillMaxWidth().padding(bottom = 2.dp)) {
-        Text(
-            text = st.label,
-            style = TextStyle(color = ColorProvider(p.muted), fontSize = 8.sp),
-            maxLines = 1,
-        )
-        Text(
-            text = st.value,
-            style = TextStyle(color = ColorProvider(toneColor(p, st.tone)), fontSize = 12.sp, fontWeight = FontWeight.Bold),
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
-private fun TabChip(p: WidgetTheme, label: String, selected: Boolean, action: Action) {
-    val base = if (selected) GlanceModifier.background(ImageProvider(p.card)) else GlanceModifier
+private fun RoundButton(icon: Int, iconDp: Float, tint: Hue, action: Action) {
     Box(
-        modifier = base.padding(horizontal = 5.dp, vertical = 4.dp).clickable(action),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            style = TextStyle(
-                color = ColorProvider(if (selected) p.accent else p.muted),
-                fontSize = 9.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            ),
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
-private fun IconButton(icon: Int, tint: Color, action: Action) {
-    Box(
-        modifier = GlanceModifier.size(26.dp).clickable(action),
+        modifier = GlanceModifier.size(28.dp).background(ImageProvider(R.drawable.w3_circle)).clickable(action),
         contentAlignment = Alignment.Center,
     ) {
         Image(
             provider = ImageProvider(icon),
             contentDescription = null,
-            modifier = GlanceModifier.size(16.dp),
-            colorFilter = ColorFilter.tint(ColorProvider(tint)),
+            modifier = GlanceModifier.size(iconDp.dp),
+            colorFilter = ColorFilter.tint(ColorProvider(Color(tint.c))),
         )
     }
 }
+
