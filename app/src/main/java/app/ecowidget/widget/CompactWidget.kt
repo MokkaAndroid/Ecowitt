@@ -189,6 +189,7 @@ private fun TilesView(
     val fullTileH = ((gridH - (fullRows - 1) * TILE_GAP) / fullRows).coerceAtMost(FULL_MAX_TILE_H)
     val full = fullTileH >= FULL_MIN_TILE_H && availW >= 240f
 
+    @Composable
     fun open(s: TileSummary): Action = if (inlineMode) {
         actionRunCallback<OpenTileCallback>(actionParametersOf(KEY_TILE to s.tile.id, KEY_TAB to s.tab.toString()))
     } else {
