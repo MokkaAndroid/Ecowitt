@@ -144,6 +144,14 @@ Retour du 08/11 : le rendu B était « très loin » des maquettes ; Mickaël de
 - ✅ README (installation pas à pas)
 - ⏳ Image d'aperçu dans le sélecteur de widgets
 
+## Phase 8 bis — Widget compact + fiches au toucher (maquettes « H »)
+- ✅ Maquettes : widget 4 × 2 (≈ 192 dp, 7 tuiles + alerte), variante 4 × 3, 9 fiches détaillées (température, pluie et neige, limite neige, vent, humidité, pression, prévisions, soleil, air)
+- 🔲 Validation des maquettes (tuiles du 4 × 2, règle de couleur pluie / neige glacée / neige qui tient)
+- ⏳ Étape 1 : widget 4 × 2 + volet de fiches (activité par-dessus l'écran d'accueil, glisser entre fiches) + fiches Température et Pluie et neige
+- ⏳ Données à ajouter : prévisions 8 jours, historique station pluie / vent / humidité, neige et limite pluie-neige heure par heure
+- ⏳ Étape 2 : fiches Limite neige, Vent, Pression, Prévisions
+- ⏳ Étape 3 : fiches Humidité, Soleil et UV, Air et pollens ; appui long = choix des tuiles
+
 ## Phase 9 — Idées pour la suite
 - ⏳ Flèche de direction du vent
 - ⏳ Notification « il commence à pleuvoir »
