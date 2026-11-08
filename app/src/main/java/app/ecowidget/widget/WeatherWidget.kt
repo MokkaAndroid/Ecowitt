@@ -113,6 +113,8 @@ private const val CHIP_ROW = 38f
 private const val HOURS_ROW = 54f
 private const val BANNER_ROW = 24f
 private const val MIN_HERO_BLOCK = 49f
+// Glance n'affiche que 10 enfants par colonne : un bloc = en-tête + bandeau + lignes de pastilles + heures.
+private const val MAX_CHIP_ROWS = 6
 
 private fun statusOf(state: CachedState, showTime: Boolean): Status {
     val snap = state.snapshot ?: return Status("", true)
@@ -347,22 +349,26 @@ private fun Full(
     if (ecoRowsMax > 0 && rem >= CHIP_ROW) { ecoRows = 1; rem -= CHIP_ROW }
     if (omRowsMax > 0 && rem >= CHIP_ROW) { omRows = 1; rem -= CHIP_ROW }
     if (wantHours && rem >= HOURS_ROW) { hours = true; rem -= HOURS_ROW }
-    while (ecoRows < ecoRowsMax && rem >= CHIP_ROW) { ecoRows++; rem -= CHIP_ROW }
-    while (omRows < omRowsMax && rem >= CHIP_ROW) { omRows++; rem -= CHIP_ROW }
+    while (ecoRows < ecoRowsMax && ecoRows < MAX_CHIP_ROWS && rem >= CHIP_ROW) { ecoRows++; rem -= CHIP_ROW }
+    while (omRows < omRowsMax && omRows < MAX_CHIP_ROWS && rem >= CHIP_ROW) { omRows++; rem -= CHIP_ROW }
 
+    // Glance n'affiche que les 10 premiers enfants d'une colonne : chaque bloc a donc sa propre colonne
+    // (les lignes de pastilles comptent chacune pour un enfant), et le nombre de lignes est plafonné.
     Column(modifier = GlanceModifier.fillMaxSize()) {
         // ───── Haut : Open-Meteo ─────
         if (showOm) {
-            OmHeader(p, accent, plain.firstOrNull(), info, snap)
-            if (banner != null && f != null) RainBanner(p, accent, banner.read(f, snap))
-            if (omRows > 0) ChipGrid(columns, omChips.take(omRows * columns)) { m ->
-                if (f != null) {
-                    val v = m.read(f, snap)
-                    InfoChip(p, accent, m.icon, joinValue(v), m.shortLabel, v.highlight, null)
+            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                OmHeader(p, accent, plain.firstOrNull(), info, snap)
+                if (banner != null && f != null) RainBanner(p, accent, banner.read(f, snap))
+                if (omRows > 0) ChipGrid(columns, omChips.take(omRows * columns)) { m ->
+                    if (f != null) {
+                        val v = m.read(f, snap)
+                        InfoChip(p, accent, m.icon, joinValue(v), m.shortLabel, v.highlight, null)
+                    }
                 }
-            }
-            if (hours && f != null) {
-                HoursStrip(p, accent, f.hours, min(f.hours.size, ((w - 2f * PAD_H) / 44f).toInt().coerceIn(1, 7)))
+                if (hours && f != null) {
+                    HoursStrip(p, accent, f.hours, min(f.hours.size, ((w - 2f * PAD_H) / 44f).toInt().coerceIn(1, 7)))
+                }
             }
             Spacer(modifier = GlanceModifier.defaultWeight())
             Box(
@@ -380,53 +386,58 @@ private fun Full(
         val heroColor = heroColor(p, hero, heroValue, snap, derived)
         val badge = if (hero == Metric.OUTDOOR_TEMP) frostBadge(snap.outdoorTemp) else null
 
-        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = hero.label.uppercase(),
-                style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp, fontWeight = FontWeight.Medium),
-                maxLines = 1,
-            )
-            if (badge != null && w >= 220f) {
-                Spacer(modifier = GlanceModifier.width(8.dp))
+        Column(modifier = GlanceModifier.fillMaxWidth()) {
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = badge,
-                    style = TextStyle(color = ColorProvider(p.accent), fontSize = 9.sp, fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                    modifier = GlanceModifier
-                        .background(ImageProvider(R.drawable.badge_frost))
-                        .padding(horizontal = 7.dp, vertical = 1.dp),
-                )
-            }
-            Spacer(modifier = GlanceModifier.defaultWeight())
-            if (status.text.isNotEmpty()) {
-                Text(
-                    text = status.text,
-                    style = TextStyle(color = ColorProvider(if (status.warn) p.warn else p.muted), fontSize = 10.sp),
+                    text = hero.label.uppercase(),
+                    style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp, fontWeight = FontWeight.Medium),
                     maxLines = 1,
                 )
+                if (badge != null && w >= 220f) {
+                    Spacer(modifier = GlanceModifier.width(8.dp))
+                    Text(
+                        text = badge,
+                        style = TextStyle(color = ColorProvider(p.accent), fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        modifier = GlanceModifier
+                            .background(ImageProvider(R.drawable.badge_frost))
+                            .padding(horizontal = 7.dp, vertical = 1.dp),
+                    )
+                }
+                Spacer(modifier = GlanceModifier.defaultWeight())
+                if (status.text.isNotEmpty()) {
+                    Text(
+                        text = status.text,
+                        style = TextStyle(color = ColorProvider(if (status.warn) p.warn else p.muted), fontSize = 10.sp),
+                        maxLines = 1,
+                    )
+                }
+            }
+            Spacer(modifier = GlanceModifier.height(2.dp))
+
+            val sparkBitmap = sparkline(hero, derived, accent, p, w, heroSp, heroValue)
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                HeroValue(p, heroValue, heroSp.sp, heroColor)
+                if (sparkBitmap != null) {
+                    Spacer(modifier = GlanceModifier.width(10.dp))
+                    Image(
+                        provider = ImageProvider(sparkBitmap.first),
+                        contentDescription = null,
+                        modifier = GlanceModifier.defaultWeight().height(sparkBitmap.second.dp),
+                        contentScale = ContentScale.FillBounds,
+                    )
+                }
             }
         }
-        Spacer(modifier = GlanceModifier.height(2.dp))
 
-        val sparkBitmap = sparkline(hero, derived, accent, p, w, heroSp, heroValue)
-        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            HeroValue(p, heroValue, heroSp.sp, heroColor)
-            if (sparkBitmap != null) {
-                Spacer(modifier = GlanceModifier.width(10.dp))
-                Image(
-                    provider = ImageProvider(sparkBitmap.first),
-                    contentDescription = null,
-                    modifier = GlanceModifier.defaultWeight().height(sparkBitmap.second.dp),
-                    contentScale = ContentScale.FillBounds,
-                )
-            }
-        }
-
+        // Sans bloc Open-Meteo, les pastilles de la station restent collées en bas du widget.
+        if (!showOm) Spacer(modifier = GlanceModifier.defaultWeight())
         if (ecoRows > 0) {
-            Spacer(modifier = GlanceModifier.defaultWeight())
-            ChipGrid(columns, ecoChips.take(ecoRows * columns)) { m ->
-                val v = m.read(snap, derived)
-                InfoChip(p, accent, m.icon, chipValue(m, v), m.label, v.highlight, v.trend)
+            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                ChipGrid(columns, ecoChips.take(ecoRows * columns)) { m ->
+                    val v = m.read(snap, derived)
+                    InfoChip(p, accent, m.icon, chipValue(m, v), m.label, v.highlight, v.trend)
+                }
             }
         }
     }
