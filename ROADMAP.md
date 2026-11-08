@@ -3,8 +3,9 @@
 Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hors périmètre
 
 > État au 08/11/2026 : **v0.1** installée et validée sur téléphone (température, pluie, humidité OK).
-> **v0.2** (Open-Meteo + courbe 24 h + couleurs dynamiques + tendances) : code écrit, **compile** (build GitHub Actions réussi le 08/11/2026, APK ≈ 11 Mo),
-> **pas encore testée sur téléphone**. Voir la checklist en bas de page.
+> **v0.2** (Open-Meteo + courbe 24 h + couleurs dynamiques + tendances) : compile, **pas encore testée sur téléphone**.
+> **v0.3** (catalogue Open-Meteo par catégories, variable personnalisée, message pluie AROME, air/pollens) : code écrit, **compile**
+> (build GitHub Actions réussi le 08/11/2026), **pas encore testée sur téléphone**. Voir la checklist en bas de page.
 
 ## Phase 0 — Cadrage
 - ✅ Station : Ecowitt HP2564 (console Wi-Fi → cloud ecowitt.net)
@@ -38,15 +39,17 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 - 🧪 Cache 10 min, repli silencieux si Open-Meteo est injoignable (le bloc du bas n'est jamais impacté)
 - ✅ Attribution « Open-Meteo » dans le widget, l'écran de réglages et le README (licence CC BY 4.0, usage non commercial)
 - ✅ Vie privée : coordonnées arrondies à ~1 km, jamais de clé Ecowitt envoyée
-- ⏳ **Catalogue complet par catégories** (v0.3) : aujourd'hui 14 infos en liste plate. Cible : ~70 infos classées (Température & humidité · Vent · Précipitations · Ciel & visibilité · Pression · Soleil & UV · Sol · Orage & stabilité · Astro · Qualité de l'air · Pollens), chacune avec sa portée (maintenant / aujourd'hui / dans N h) et ses unités lues dans la réponse de l'API
-- ⏳ « Variable personnalisée » : saisir le nom d'une variable Open-Meteo pour couvrir littéralement tout le reste
-- ⏳ Qualité de l'air / pollens (API air-quality, Europe, pollens saisonniers)
+- 🧪 **Catalogue par catégories** (v0.3) : ≈ 85 infos classées en 12 catégories (Spécial · Température & humidité · Vent · Précipitations · Ciel & visibilité · Pression · Soleil & UV · Orage & stabilité · Sol · Astro · Qualité de l'air · Pollens), recherche, unités lues dans la réponse de l'API
+- 🧪 « Variable personnalisée » : saisie du nom d'une variable Open-Meteo (prévisions ou air/pollens ; actuel / horaire / quotidien) pour couvrir le reste
+- 🧪 Qualité de l'air / pollens (API air-quality, Europe, pollens saisonniers) : requête séparée, cache 60 min, uniquement si une info de cette catégorie est choisie
+- 🧪 Variables demandées = union de tous les widgets posés ; si Open-Meteo refuse une variable (erreur 400), repli sur les infos de base + raison affichée dans Diagnostic
 - ⏳ Alertes météo (vigilance) — non couvertes par Open-Meteo, source à étudier (Météo-France)
 
 ## Phase 3 bis — Pluie imminente (message unique)
 - ✅ v0.2 : « Prochaine pluie » via `minutely_15` de l'endpoint générique `/v1/forecast` (modèle « best match », pas forcément AROME)
-- ⏳ Passer sur `/v1/meteofrance` (AROME France / HD, `minutely_15`, horizon 6 h, mise à jour **horaire**) — modèle numérique, **pas du radar**
-- ⏳ Météo-France **PIAF** (fusion extrapolation radar + AROME-PI, pas de 5 min, horizon 3 h, GRIB2 via portail-api.meteofrance.fr) : à valider avant dev — extraction par point possible ? clé/jeton (jeton 1 h), quotas, couverture radar en vallée alpine
+- 🧪 v0.3 : « Prochaine pluie » et message pluie via `/v1/meteofrance` (AROME France / HD, `minutely_15`, horizon 6 h, mise à jour **horaire**) — modèle numérique, **pas du radar** ; repli sur le modèle par défaut si indisponible
+- 🧪 v0.3 : info « Message pluie » (« Pluie dans ~20 min », « Pas de pluie dans les 6 h »…) en bandeau sous l'en-tête, ou en tête des infos de droite si la hauteur manque
+- ⏳ Météo-France **PIAF** (fusion extrapolation radar + AROME-PI, pas de 5 min, horizon 3 h, GRIB2 + WCS/WMS via portail-api.meteofrance.fr) : à valider avant dev — souscrire à l'API, lire la documentation (extraction par point via WCS ?), jeton (1 h) / Application ID, quotas, couverture radar en vallée alpine
 - ⏳ Message unique à priorité : pluie mesurée par la station > PIAF > AROME > modèle par défaut (« Pluie dans ~20 min », « Pas de pluie dans les 3 h »)
 - ⛔ API non publique de l'app Météo-France (« pluie dans l'heure ») : non documentée, peut casser sans préavis
 
@@ -59,7 +62,7 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 - ⏳ Build « release » avec R8 (réduction/obfuscation) — après validation fonctionnelle
 
 ## Phase 5 — Widget
-- ✅ 17 mesures Ecowitt (dont Mini/Maxi du jour) et 14 informations Open-Meteo au choix
+- ✅ 17 mesures Ecowitt (dont Mini/Maxi du jour) · 🧪 ≈ 85 informations Open-Meteo classées par catégorie + variable personnalisée
 - ✅ Mise en page en deux blocs : **Open-Meteo en haut, station Ecowitt en bas**
 - ✅ Mise en page adaptative (format court / large ; 1, 2 ou 3 colonnes ; ce qui ne rentre pas est masqué par priorité)
 - ✅ 5 thèmes : Nuit, Océan, Aurore, Clair, Verre
@@ -78,7 +81,7 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 - ✅ « Reconfigurer » via appui long sur le widget
 - ✅ Bouton « Ajouter à l'écran d'accueil »
 - 🧪 Écran « Position » : position de la station, recherche de ville, altitude
-- 🧪 Écran « Diagnostic » : état de chaque source (direct / historique 24 h / Open-Meteo) + bouton « Tout actualiser »
+- 🧪 Écran « Diagnostic » : état de chaque source (direct / historique 24 h / Open-Meteo / pluie à court terme AROME / air et pollens) + bouton « Tout actualiser »
 - ⏳ Aperçu en direct du widget dans l'écran de personnalisation
 
 ## Phase 7 — Actualisation toutes les 2 min
@@ -103,10 +106,10 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 - ⏳ Données du réseau local de la console (mode sans cloud)
 - ⛔ Version iOS (WidgetKit, nécessite un Mac et Xcode) : projet séparé à lancer si besoin
 
-## Checklist de test sur téléphone (v0.2)
+## Checklist de test sur téléphone (v0.2 + v0.3)
 1. [ ] Installer l'APK **par-dessus** la v0.1 (même signature ? sinon désinstaller d'abord) puis ouvrir l'app
 2. [ ] Réglages → « Enregistrer et tester » : message « position de la station détectée » (sinon, rechercher ta ville)
-3. [ ] Réglages → Diagnostic → « Tout actualiser » : les 3 lignes passent à OK (noter précisément toute ligne en échec)
+3. [ ] Réglages → Diagnostic → « Tout actualiser » : toutes les lignes passent à OK (noter précisément toute ligne en échec ; « Pluie à court terme (AROME) » peut être indisponible hors France/Europe centrale)
 4. [ ] Ajouter / reconfigurer le widget : bloc Open-Meteo en haut, Ecowitt en bas
 5. [ ] Courbe 24 h visible à côté de la température (widget assez large, température en 1re position)
 6. [ ] Comparer min/max du jour et prévisions avec l'app Ecowitt et une autre source
@@ -115,3 +118,7 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 9. [ ] Couper le Wi-Fi/données : le widget garde les dernières valeurs + « hors ligne »
 10. [ ] Pluie : fond bleuté + « En cours » en bleu ; température proche de 0 °C : badge de gel
 11. [ ] Vérifier la régularité de l'actualisation (écran allumé, puis éteint 10 min) et la batterie sur 24 h
+12. [ ] Reconfigurer le widget → section Prévisions : catégories dépliables, recherche, ajout / retrait / ordre des infos
+13. [ ] Ajouter « Message pluie » : texte cohérent avec la météo réelle (pluie dans X min / pas de pluie), s'affiche en bandeau si le widget est assez haut
+14. [ ] Ajouter une info « Qualité de l'air » et un pollen : valeurs plausibles (ligne « Air et pollens » dans Diagnostic) ; hors saison un pollen peut afficher « — »
+15. [ ] Variable personnalisée : saisir `wet_bulb_temperature_2m` (horaire) → valeur affichée ; saisir un nom faux → message de refus dans Diagnostic, le widget garde les infos de base

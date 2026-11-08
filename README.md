@@ -3,7 +3,7 @@
 Widget Android pour station météo **Ecowitt** (conçu pour la HP2564), alimenté par le cloud ecowitt.net, avec les prévisions **Open-Meteo**.
 
 - **En bas** : les mesures de ta station (température, pluie en cours, humidité, vent, pression, UV… au choix), courbe des 24 h, min/max du jour, tendances ▲▼.
-- **En haut** : la météo du moment et les prévisions Open-Meteo (min/max prévus, prochaine pluie, risque de pluie, UV, lever/coucher, prochaines heures…).
+- **En haut** : la météo du moment et les prévisions Open-Meteo, au choix parmi ≈ 85 infos classées par catégorie (température, vent, précipitations, ciel, pression, soleil & UV, orage, sol, astro, qualité de l'air, pollens) + n'importe quelle variable Open-Meteo saisie à la main ; message « pluie imminente » (modèle AROME France).
 - Couleurs dynamiques (température, fond bleuté sous la pluie, badge de gel), 5 thèmes, actualisation jusqu'à toutes les 2 minutes.
 
 ## Obtenir l'APK (sans Android Studio)
@@ -30,7 +30,7 @@ Widget Android pour station météo **Ecowitt** (conçu pour la HP2564), aliment
 
 - Intervalle réglable : 2 / 5 / 10 / 15 min. Un appui sur le widget force l'actualisation.
 - Android peut espacer les mises à jour quand le téléphone est immobile, écran éteint (mode Doze).
-- Mesures en direct : à chaque cycle · historique 24 h (courbe, min/max, tendances) : toutes les 15 min · prévisions Open-Meteo : toutes les 10 min.
+- Mesures en direct : à chaque cycle · historique 24 h (courbe, min/max, tendances) : toutes les 15 min · prévisions et pluie à court terme Open-Meteo : toutes les 10 min · air et pollens : toutes les 60 min.
 - Inutile de descendre sous l'intervalle d'envoi de la console vers ecowitt.net (réglable dans WS View Plus).
 
 ## Signature stable (optionnel)
