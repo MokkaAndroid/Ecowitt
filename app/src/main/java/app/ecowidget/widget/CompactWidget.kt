@@ -1,5 +1,6 @@
 package app.ecowidget.widget
 
+import android.content.ComponentName
 import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -90,6 +91,16 @@ private const val DETAIL_HEAD_H = 28f
 
 /** Sous cette hauteur, le détail ne tient pas dans le widget : un appui ouvre la fiche plein écran. */
 private const val INLINE_MIN_H = 100f
+
+/** Ouvre la fiche plein écran sur un sujet et un onglet. */
+@Composable
+private fun detailAction(tile: String, tab: Int, appWidgetId: Int): Action {
+    val ctx = LocalContext.current
+    return actionStartActivity(
+        ComponentName(ctx, DetailActivity::class.java),
+        actionParametersOf(KEY_TILE to tile, KEY_TAB to tab.toString(), KEY_WID to appWidgetId.toString()),
+    )
+}
 
 /** Couleur d'une valeur selon son ton, pour le thème du widget. */
 internal fun toneColor(p: WidgetTheme, tone: Tone): Color = Color(ChartColors.of(p).of(tone))
@@ -207,9 +218,7 @@ private fun TilesView(
                     val action: Action = if (inlineMode) {
                         actionRunCallback<OpenTileCallback>(actionParametersOf(KEY_TILE to s.tile.id, KEY_TAB to "0"))
                     } else {
-                        actionStartActivity<DetailActivity>(
-                            actionParametersOf(KEY_TILE to s.tile.id, KEY_TAB to "0", KEY_WID to appWidgetId.toString()),
-                        )
+                        detailAction(s.tile.id, 0, appWidgetId)
                     }
                     TileCell(p, s, accent, action, tileH, GlanceModifier.defaultWeight())
                 }
@@ -309,9 +318,7 @@ private fun DetailView(appWidgetId: Int, p: WidgetTheme, inputs: DetailInputs, t
             IconButton(
                 R.drawable.ic_expand,
                 p.muted,
-                actionStartActivity<DetailActivity>(
-                    actionParametersOf(KEY_TILE to tile.id, KEY_TAB to tab.toString(), KEY_WID to appWidgetId.toString()),
-                ),
+                detailAction(tile.id, tab, appWidgetId),
             )
         }
         Spacer(modifier = GlanceModifier.height(GAP.dp))
