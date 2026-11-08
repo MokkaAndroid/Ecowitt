@@ -84,8 +84,9 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 ## Phase 5 bis — Refonte de l'affichage (v0.4, direction B)
 Maquettes : canevas « Ecowidget · 3 propositions d'affichage » (A sections · B héros + pluie · C tableau de bord). Choix : **B**, avec gabarits par taille, barres de pluie et valeurs à zéro estompées.
 - 🧪 Héros : mesure principale en grand (jusqu'à 60 sp selon la hauteur), météo du moment (icône, libellé, mini · maxi) à droite, courbe 24 h entre les deux si la largeur le permet
-- 🧪 Carte pluie : message + **12 barres de 5 min** sur l'heure à venir (échelle racine carrée, 2 mm/h = hauteur pleine) ; source affichée (AROME aujourd'hui, PIAF ensuite). Affichée quand de la pluie est prévue ou en cours, sinon simple ligne
-- 🧪 Prochaines heures : bandeau (icône + température), ou carte avec **courbe** des températures quand la hauteur le permet
+- 🧪 Carte pluie : message + **12 barres de 5 min** sur l'heure à venir (échelle racine carrée, 2 mm/h = hauteur pleine) ; source affichée (AROME aujourd'hui, PIAF ensuite). Passe avant le reste quand de la pluie est prévue ou en cours ; un jour sec elle apparaît dès qu'il y a la place (barres plates), sinon simple ligne
+- 🧪 Prochaines heures : bandeau (icône + température), ou carte avec **courbe** des températures quand la hauteur le permet ; si l'info « Bandeau des prochaines heures » n'est pas choisie, les heures n'apparaissent qu'en bonus quand il reste de la place
+- 🧪 v0.4.1 (retour du 08/11 : grand widget avec un vide au milieu, très loin des maquettes) : la hauteur libre est répartie entre les blocs (espaceurs élastiques) au lieu d'un seul vide ; héros jusqu'à 72 sp, icône météo proportionnelle, graphiques un peu plus hauts ; courbe 24 h pleine largeur sous le héros ; lieu réduit à la commune (« Moûtiers »)
 - 🧪 Bandeau station : étiquette au-dessus, valeur dessous, filets verticaux (jusqu'à 5 colonnes, 3 lignes)
 - 🧪 Infos Open-Meteo restantes (air, pollens, isotherme…) en pastilles sous la station
 - 🧪 **Gabarits par taille** : budget de hauteur par priorité — héros + 1 ligne station (obligatoires) → message pluie (dans la colonne météo, puis ligne, puis carte) → heures → infos → en-tête (lieu + heure) → courbe des heures → lignes station supplémentaires → héros plus grand

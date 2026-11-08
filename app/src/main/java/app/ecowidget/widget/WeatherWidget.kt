@@ -116,6 +116,9 @@ private const val RAIN_LINE_H = 24f
 private const val RAIN_CARD_H = 92f
 private const val HOURS_STRIP_H = 54f
 private const val HOURS_CURVE_H = 96f
+private const val SPARK_H = 44f
+private const val SPARK_DRAW_H = 38f
+private const val MAX_HERO_SP = 72
 private const val RAIN_BARS_H = 30f
 private const val CURVE_H = 26f
 private const val STATION_ROW_H = 38f
@@ -323,7 +326,8 @@ private fun isQuiet(v: MetricValue): Boolean {
 
 /**
  * Format large : le héros (mesure principale + météo du moment) en haut, le bandeau de la station en bas,
- * et entre les deux ce que la hauteur permet : pluie (ligne ou barres), heures (bandeau ou courbe), infos, en-tête.
+ * et entre les deux ce que la hauteur permet : pluie (ligne ou barres), heures (bandeau ou courbe), courbe 24 h,
+ * infos, en-tête. La place qui reste est répartie entre les blocs plutôt que laissée en un seul grand vide.
  */
 @Composable
 private fun Full(
@@ -345,10 +349,14 @@ private fun Full(
     val rainValue = if (rainItem != null && f != null) rainItem.read(f, snap) else null
     val hasRain = rainValue != null && rainValue.value != Metric.MISSING.value
     val rainRelevant = hasRain && (snap.isRaining == true || f?.nextRainMin != null)
-    val wantHours = f != null && f.hours.size >= 2 && items.any { it.id == OmCatalog.NEXT_HOURS }
+    // Les heures choisies passent avant les infos ; sinon elles ne viennent qu'en bonus, quand il reste de la place.
+    val hoursSelected = items.any { it.id == OmCatalog.NEXT_HOURS }
+    val hasHours = f != null && f.hours.size >= 2
     val wantRange = items.any { it.id == "DAY_RANGE" }
     val facts = items.filter { it.id != OmCatalog.RAIN_MESSAGE && it.id != OmCatalog.NEXT_HOURS && it.id != "DAY_RANGE" }
     val ecoChips = config.metrics.drop(1)
+    val hero = config.metrics.first()
+    val canSpark = hero == Metric.OUTDOOR_TEMP && (derived?.tempSeries?.size ?: 0) >= 3
 
     // ---- Budget de hauteur : le héros et une ligne de station sont obligatoires, le reste par priorité ----
     val columns = (innerW / 72f).toInt().coerceIn(2, 5)
@@ -377,36 +385,52 @@ private fun Full(
     var hours = false
     var curve = false
     var header = false
+    var spark = false
     var factRows = 0
-    if (wantHours && rem >= HOURS_STRIP_H) { hours = true; rem -= HOURS_STRIP_H }
+    if (hoursSelected && hasHours && rem >= HOURS_STRIP_H) { hours = true; rem -= HOURS_STRIP_H }
     if (facts.isNotEmpty() && rem >= FACT_ROW_H) { factRows = 1; rem -= FACT_ROW_H }
     if (rem >= HEADER_H) { header = true; rem -= HEADER_H }
     if (hours && rem >= HOURS_CURVE_H - HOURS_STRIP_H) { curve = true; rem -= HOURS_CURVE_H - HOURS_STRIP_H }
-    if (hasRain && rainRelevant && rainMode == RainMode.LINE && rem >= RAIN_CARD_H - RAIN_LINE_H) {
+    if (rainMode == RainMode.LINE && rem >= RAIN_CARD_H - RAIN_LINE_H) {
         rainMode = RainMode.CARD
         rem -= RAIN_CARD_H - RAIN_LINE_H
     }
+    if (!hours && hasHours && rem >= HOURS_CURVE_H) { hours = true; curve = true; rem -= HOURS_CURVE_H }
+    if (canSpark && rem >= SPARK_H) { spark = true; rem -= SPARK_H }
     while (stationRows < stationRowsMax && rem >= STATION_ROW_H) { stationRows++; rem -= STATION_ROW_H }
     val factRowsMax = min(MAX_FACT_ROWS, ceil(facts.size / factColumns.toDouble()).toInt())
     while (factRows in 1 until factRowsMax && rem >= FACT_ROW_H) { factRows++; rem -= FACT_ROW_H }
-    while (heroSp < 60) {
+    while (heroSp < MAX_HERO_SP) {
         val extra = heroBlock(heroSp + 4, f != null) - heroBlock(heroSp, f != null)
         if (rem < extra) break
         heroSp += 4
         rem -= extra
     }
+    // Ce qui reste agrandit un peu les graphiques ; le reliquat est réparti entre les blocs.
+    var barsH = RAIN_BARS_H
+    if (rainMode == RainMode.CARD) {
+        val extra = rem.coerceIn(0f, 24f)
+        barsH += extra
+        rem -= extra
+    }
+    var curveH = CURVE_H
+    if (curve) {
+        val extra = rem.coerceIn(0f, 16f)
+        curveH += extra
+        rem -= extra
+    }
 
-    val hero = config.metrics.first()
     val heroValue = hero.read(snap, derived)
     val heroColor = heroColor(p, hero, heroValue, snap, derived)
     val badge = if (hero == Metric.OUTDOOR_TEMP && innerW >= 260f) frostBadge(snap.outdoorTemp) else null
     val heroLabel = hero.label.uppercase() +
         (if (!header && status.text.isNotEmpty()) " · " + status.text else "")
 
-    // Glance n'affiche que les 10 premiers enfants d'une colonne : chaque bloc a sa propre colonne.
+    // Glance n'affiche que les 10 premiers enfants d'une colonne : chaque bloc a sa propre colonne,
+    // et des espaceurs élastiques répartissent la hauteur libre entre eux.
     Column(modifier = GlanceModifier.fillMaxSize()) {
         Column(modifier = GlanceModifier.fillMaxWidth()) {
-            if (header) Header(p, info.place, status)
+            if (header) Header(p, shortPlace(info.place), status)
             HeroRow(
                 p = p,
                 accent = accent,
@@ -416,22 +440,25 @@ private fun Full(
                 heroValue = heroValue,
                 heroColor = heroColor,
                 heroSp = heroSp,
-                spark = sparkline(hero, derived, accent, p, w, heroSp, heroValue, if (f != null) WX_COLUMN_W else 0f),
                 f = f,
                 wxLine = wxLine(p, f, rainMode, rainValue, wantRange),
             )
             if (notice) ForecastNotice(p, info)
-            when (rainMode) {
-                RainMode.LINE -> if (rainValue != null) RainBanner(p, accent, rainValue)
-                RainMode.CARD -> if (rainValue != null && f != null) RainCard(p, f, rainValue, w)
-                else -> {}
-            }
-            if (hours && f != null) {
-                val count = min(f.hours.size, (innerW / 44f).toInt().coerceIn(2, 7))
-                if (curve) HoursCurveCard(p, accent, f.hours, count, w) else HoursStrip(p, accent, f.hours, count)
-            }
+            if (spark) TrendSparkline(p, accent, derived, innerW)
+            if (rainMode == RainMode.LINE && rainValue != null) RainBanner(p, accent, rainValue)
         }
         Spacer(modifier = GlanceModifier.defaultWeight())
+        if (rainMode == RainMode.CARD && rainValue != null && f != null) {
+            Column(modifier = GlanceModifier.fillMaxWidth()) { RainCard(p, f, rainValue, w, barsH) }
+            Spacer(modifier = GlanceModifier.defaultWeight())
+        }
+        if (hours && f != null) {
+            val count = min(f.hours.size, (innerW / 44f).toInt().coerceIn(2, 7))
+            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                if (curve) HoursCurveCard(p, accent, f.hours, count, w, curveH) else HoursStrip(p, accent, f.hours, count)
+            }
+            Spacer(modifier = GlanceModifier.defaultWeight())
+        }
         Column(modifier = GlanceModifier.fillMaxWidth()) {
             ecoChips.take(stationRows * columns).chunked(columns).forEach { rowItems ->
                 StationRow(p, rowItems, columns, snap, derived)
@@ -448,6 +475,9 @@ private fun Full(
     }
 }
 
+/** Seule la commune s'affiche : « Moûtiers, Auvergne-Rhône-Alpes, France » devient « Moûtiers ». */
+private fun shortPlace(label: String?): String? = label?.substringBefore(',')?.trim()?.takeIf { it.isNotEmpty() }
+
 /** Ligne sous la météo du moment : le message pluie quand il n'a pas sa place ailleurs, sinon mini · maxi. */
 private fun wxLine(p: WidgetTheme, f: Forecast?, mode: RainMode, rain: MetricValue?, wantRange: Boolean): Pair<String, Color>? {
     if (f == null) return null
@@ -460,38 +490,6 @@ private fun wxLine(p: WidgetTheme, f: Forecast?, mode: RainMode, rain: MetricVal
         return (Metric.fmt(lo, 0) + "° · " + Metric.fmt(hi, 0) + "°") to p.muted
     }
     return null
-}
-
-/** Courbe 24 h : seulement quand la mesure principale est la température extérieure et que la place le permet. */
-@Composable
-private fun sparkline(
-    hero: Metric,
-    derived: Derived?,
-    accent: Color,
-    p: WidgetTheme,
-    widthDp: Float,
-    heroSp: Int,
-    heroValue: MetricValue,
-    reserveDp: Float,
-): Pair<android.graphics.Bitmap, Float>? {
-    if (hero != Metric.OUTDOOR_TEMP) return null
-    val series = derived?.tempSeries ?: return null
-    if (series.size < 3) return null
-    // Largeur estimée de la valeur principale (chiffres + unité + flèche).
-    val heroWidth = heroValue.value.length * 0.58f * heroSp + 46f
-    val sparkW = widthDp - 2f * PAD_H - heroWidth - reserveDp - 20f
-    if (sparkW < 70f) return null
-    val sparkH = min(heroSp * 1.2f, 56f)
-    val density = LocalContext.current.resources.displayMetrics.density
-    val bmp = Sparkline.render(
-        series = series,
-        widthPx = (sparkW * density).toInt(),
-        heightPx = (sparkH * density).toInt(),
-        density = density,
-        lineColor = accent.toArgb(),
-        gridColor = p.muted.copy(alpha = 0.55f).toArgb(),
-    ) ?: return null
-    return bmp to sparkH
 }
 
 private fun heroColor(p: WidgetTheme, m: Metric, v: MetricValue, s: WeatherSnapshot, d: Derived?): Color {
@@ -538,14 +536,11 @@ private fun HeroRow(
     heroValue: MetricValue,
     heroColor: Color,
     heroSp: Int,
-    spark: Pair<android.graphics.Bitmap, Float>?,
     f: Forecast?,
     wxLine: Pair<String, Color>?,
 ) {
     Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        // Sans courbe, la colonne de gauche prend la place libre et la météo reste calée à droite.
-        val leftModifier = if (spark == null) GlanceModifier.defaultWeight() else GlanceModifier
-        Column(modifier = leftModifier) {
+        Column(modifier = GlanceModifier.defaultWeight()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = heroLabel,
@@ -570,29 +565,19 @@ private fun HeroRow(
             }
             HeroValue(p, heroValue, heroSp.sp, heroColor)
         }
-        if (spark != null) {
-            Spacer(modifier = GlanceModifier.width(8.dp))
-            Image(
-                provider = ImageProvider(spark.first),
-                contentDescription = null,
-                modifier = GlanceModifier.defaultWeight().height(spark.second.dp),
-                contentScale = ContentScale.FillBounds,
-            )
-            Spacer(modifier = GlanceModifier.width(8.dp))
-        }
-        if (f != null) WeatherColumn(p, accent, f, wxLine)
+        if (f != null) WeatherColumn(p, accent, f, wxLine, (heroSp * 0.7f).toInt().coerceIn(26, 48))
     }
 }
 
 /** Météo du moment (Open-Meteo) : icône, libellé et une ligne d'appoint. */
 @Composable
-private fun WeatherColumn(p: WidgetTheme, accent: Color, f: Forecast, line: Pair<String, Color>?) {
+private fun WeatherColumn(p: WidgetTheme, accent: Color, f: Forecast, line: Pair<String, Color>?, iconDp: Int) {
     val day = f.isDay ?: true
     Column(horizontalAlignment = Alignment.End) {
         Image(
             provider = ImageProvider(WeatherCodes.icon(f.code, day)),
             contentDescription = null,
-            modifier = GlanceModifier.size(26.dp),
+            modifier = GlanceModifier.size(iconDp.dp),
             colorFilter = ColorFilter.tint(ColorProvider(accent)),
         )
         Text(
@@ -615,6 +600,33 @@ private fun WeatherColumn(p: WidgetTheme, accent: Color, f: Forecast, line: Pair
     }
 }
 
+/** Courbe de température des 24 dernières heures, sous le héros, sur toute la largeur. */
+@Composable
+private fun TrendSparkline(p: WidgetTheme, accent: Color, derived: Derived?, innerW: Float) {
+    val series = derived?.tempSeries
+    if (series != null) {
+        val density = LocalContext.current.resources.displayMetrics.density
+        val bmp = Sparkline.render(
+            series = series,
+            widthPx = (innerW * density).toInt(),
+            heightPx = (SPARK_DRAW_H * density).toInt(),
+            density = density,
+            lineColor = accent.toArgb(),
+            gridColor = p.muted.copy(alpha = 0.55f).toArgb(),
+        )
+        if (bmp != null) {
+            Box(modifier = GlanceModifier.fillMaxWidth().padding(top = 6.dp)) {
+                Image(
+                    provider = ImageProvider(bmp),
+                    contentDescription = null,
+                    modifier = GlanceModifier.fillMaxWidth().height(SPARK_DRAW_H.dp),
+                    contentScale = ContentScale.FillBounds,
+                )
+            }
+        }
+    }
+}
+
 /** Quand les prévisions manquent : une ligne qui dit pourquoi, au lieu d'un trou. */
 @Composable
 private fun ForecastNotice(p: WidgetTheme, info: ForecastInfo) {
@@ -632,13 +644,13 @@ private fun ForecastNotice(p: WidgetTheme, info: ForecastInfo) {
 
 /** Carte pluie : message + barres de 5 min sur l'heure à venir. */
 @Composable
-private fun RainCard(p: WidgetTheme, f: Forecast, v: MetricValue, widthDp: Float) {
+private fun RainCard(p: WidgetTheme, f: Forecast, v: MetricValue, widthDp: Float, barsH: Float) {
     val density = LocalContext.current.resources.displayMetrics.density
     val barsW = widthDp - 2f * PAD_H - 20f
     val bars = RainBars.render(
         bins = rainBins(f),
         widthPx = (barsW * density).toInt(),
-        heightPx = (RAIN_BARS_H * density).toInt(),
+        heightPx = (barsH * density).toInt(),
         density = density,
         barColor = p.rain.toArgb(),
         idleColor = p.muted.copy(alpha = 0.35f).toArgb(),
@@ -679,7 +691,7 @@ private fun RainCard(p: WidgetTheme, f: Forecast, v: MetricValue, widthDp: Float
                 Image(
                     provider = ImageProvider(bars),
                     contentDescription = null,
-                    modifier = GlanceModifier.fillMaxWidth().height(RAIN_BARS_H.dp),
+                    modifier = GlanceModifier.fillMaxWidth().height(barsH.dp),
                     contentScale = ContentScale.FillBounds,
                 )
                 Spacer(modifier = GlanceModifier.height(3.dp))
@@ -698,7 +710,7 @@ private fun RainCard(p: WidgetTheme, f: Forecast, v: MetricValue, widthDp: Float
 
 /** Prochaines heures : icône et température, la courbe au-dessous, puis l'heure. */
 @Composable
-private fun HoursCurveCard(p: WidgetTheme, accent: Color, hours: List<HourPoint>, count: Int, widthDp: Float) {
+private fun HoursCurveCard(p: WidgetTheme, accent: Color, hours: List<HourPoint>, count: Int, widthDp: Float, curveH: Float) {
     val shown = hours.take(count)
     val density = LocalContext.current.resources.displayMetrics.density
     val temps = shown.mapNotNull { it.temp }
@@ -706,7 +718,7 @@ private fun HoursCurveCard(p: WidgetTheme, accent: Color, hours: List<HourPoint>
         HoursCurve.render(
             temps = temps,
             widthPx = ((widthDp - 2f * PAD_H - 20f) * density).toInt(),
-            heightPx = (CURVE_H * density).toInt(),
+            heightPx = (curveH * density).toInt(),
             density = density,
             lineColor = accent.toArgb(),
         )
@@ -743,7 +755,7 @@ private fun HoursCurveCard(p: WidgetTheme, accent: Color, hours: List<HourPoint>
                 Image(
                     provider = ImageProvider(curve),
                     contentDescription = null,
-                    modifier = GlanceModifier.fillMaxWidth().height(CURVE_H.dp),
+                    modifier = GlanceModifier.fillMaxWidth().height(curveH.dp),
                     contentScale = ContentScale.FillBounds,
                 )
             }
