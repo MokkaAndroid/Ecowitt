@@ -151,15 +151,17 @@ Un réglage dans l'application, « Mode du widget », choisit entre trois varian
 - **Mode 3 · Compact + détail dans le widget** : tuiles 4 × 2 ; un appui remplace le contenu du widget par le détail, sur place (maquettes W3). Un bouton ⤢ ouvre la fiche plein écran du mode 2.
 
 Avancement :
-- ✅ Maquettes mode 2 : widget 4 × 2 (≈ 192 dp, 7 tuiles + alerte), variante 4 × 3, 9 fiches détaillées
-- ✅ Maquettes mode 3 : même widget 4 × 2, 7 détails sur place (17 pages avec onglets : température 3, pluie 4, limite neige 2, vent 2, humidité 2, pression 2, prévisions 2)
-- 🔲 Validation des maquettes (tuiles du 4 × 2, règle de couleur pluie / neige glacée / neige qui tient, pages du mode 3)
-- ⏳ Étape 0 : réglage « Mode du widget » (1 / 2 / 3), stocké dans `Storage`, relu par le widget via `WidgetRefresh.version` (changement de mode sans reposer le widget)
-- ⏳ Étape 1 : widget 4 × 2 + détail Température et Pluie et neige, dans les deux modes (mode 3 : état « tuile ouverte + onglet » enregistré dans l'état du widget, `ActionCallback` par tuile / onglet / retour, retour automatique aux tuiles après 30 s, bitmaps de courbes ; mode 2 : activité-volet avec glisser entre fiches)
-- ⏳ Données à ajouter : prévisions 8 jours, historique station pluie / vent / humidité, neige et limite pluie-neige heure par heure
-- ⏳ Étape 2 : détails Limite neige, Vent, Pression, Prévisions
-- ⏳ Étape 3 : Humidité, Soleil et UV, Air et pollens ; appui long = choix des tuiles
-- ⚠️ Mode 3 : pas de lecture au doigt sur les courbes, une page à la fois, taille du widget fixée par le lanceur ; limite de 10 enfants par ligne / colonne dans Glance et poids total des bitmaps à surveiller
+- ✅ Maquettes mode 2 : widget 4 × 2 (7 tuiles + alerte), variante 4 × 3, 9 fiches détaillées
+- ✅ Maquettes mode 3 : même widget 4 × 2, 7 détails sur place (17 pages avec onglets)
+- ✅ Validation des maquettes par Mickaël (« Lance les 3 variantes »)
+- ✅ Étape 0 · **v0.6.0** : réglage « Mode du widget » (Complet / Tuiles + page / Tuiles + détail) dans l'application, stocké dans `Storage`, relu par le widget via `WidgetRefresh.version` (changement de mode sans reposer le widget)
+- ✅ Étape 1 · **v0.6.0** : widget compact à 7 tuiles (Température, Pluie, Limite neige, Vent, Humidité, Pression, Prévisions) ; mode 3 : détail dans le widget (onglets, flèche retour, ⤢ vers la fiche plein écran, retour automatique après 30 s par alarme) ; mode 2 : fiche plein écran `DetailActivity` (passage d'un sujet à l'autre, actualisation, thème du widget)
+- ✅ Données · **v0.6.0** : prévisions 8 jours, séries horaires (ressenti, pluie, neige, limite neige, isotherme, vent, rafales, humidité, rosée, pression, probabilité de pluie), historique station étendu à 50 h avec vent, pluie et humidité (repli sur l'ancien historique si l'API refuse)
+- ✅ Étape 2 · **v0.6.0** : les 7 sujets ont leurs fiches (19 onglets) ; graphiques dessinés en bitmap (courbes, barres pluie / neige / mélange hachuré selon la règle limite neige + température)
+- 🔲 Tests sur téléphone : voir les points 23 à 30 de la checklist (tailles réelles 4×2 / 4×3, appuis, retour auto, historique vent / pluie station)
+- ⏳ Étape 3 : fiches Soleil et UV, Air et pollens ; appui long = choix et ordre des tuiles ; comparaison des modèles pour la limite neige (onglet « Modèles ») ; glisser d'une fiche à l'autre dans la fiche plein écran
+- ⚠️ Tailles réelles : une case de lanceur fait ≈ 70 dp, donc hauteur ≈ 70 × n − 30 dp (4×2 ≈ 110 dp, 4×3 ≈ 180 dp). En 4×2 : en-tête + une rangée de 5 tuiles ; en 4×3 ou plus : en-tête + 7 tuiles sur deux rangées. Le détail dans le widget (mode 3) demande ≥ 100 dp de haut ; en dessous, un appui ouvre la fiche plein écran
+- ⚠️ Mode 3 : pas de lecture au doigt sur les courbes, une page à la fois, taille du widget fixée par le lanceur ; limite de 10 enfants par ligne / colonne dans Glance et poids total des bitmaps à surveiller. Le retour automatique repose sur une alarme : sans la permission « Alarmes et rappels », il peut tarder (le widget revient alors aux tuiles à la prochaine mise à jour)
 
 ## Phase 9 — Idées pour la suite
 - ⏳ Flèche de direction du vent
@@ -190,3 +192,12 @@ Avancement :
 20. [ ] **v0.4** — Valeurs à zéro estompées (pluie du jour 0,0 mm, pollens 0) ; température 0 °C affichée normalement
 21. [ ] **v0.5** — Grand widget : cartes prévisions / tuiles / station, rien de coupé, pas de grand vide ; infos de la maquette présentes (ressenti, heures, vent, précip., air, pollens, isotherme)
 22. [ ] **v0.5** — Les valeurs « Open-Meteo » manquantes (« — ») se remplissent après la première actualisation (appui sur le widget) ; ligne « Air et pollens » OK dans Diagnostic
+23. [ ] **v0.6.0** — Réglages → « Mode du widget » : passer à « Tuiles + page » ; le widget affiche l'en-tête (météo, température, lieu, heure) et les tuiles, valeurs cohérentes avec l'ancien widget
+24. [ ] **v0.6.0** — Tuiles : en 4×2, une rangée de 5 tuiles ; en 4×3 ou plus, 7 tuiles sur deux rangées ; rien de coupé ; un appui sur l'en-tête ou le fond actualise
+25. [ ] **v0.6.0** — « Tuiles + page » : un appui sur une tuile ouvre la fiche plein écran sur le bon sujet ; onglets, valeurs et graphique lisibles ; le bandeau d'icônes change de sujet ; ↻ actualise
+26. [ ] **v0.6.0** — « Tuiles + détail » (widget ≥ 4×3) : un appui affiche le détail dans le widget ; onglets cliquables, flèche retour, ⤢ ouvre la fiche plein écran sur le même onglet ; retour automatique aux tuiles ≈ 30 s après le dernier appui
+27. [ ] **v0.6.0** — Fiche Pluie : onglet « 60 min » cohérent avec le radar ; onglet « Heures » avec barres bleues (pluie), claires (neige), hachurées (mélange) ; « 7 j » plausible
+28. [ ] **v0.6.0** — Fiche Limite neige : courbe de la limite sur 24 h avec le trait « chez toi 685 m » ; onglet « Iso 0 °C »
+29. [ ] **v0.6.0** — Fiches Vent / Humidité / Pression : courbes de la station sur 24 à 48 h (si absentes : message « Pas encore d'historique », puis Diagnostic pour voir la ligne Historique) ; prévisions en pointillés
+30. [ ] **v0.6.0** — Revenir au mode « Complet » : le grand widget d'avant s'affiche, rien n'a changé
+

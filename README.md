@@ -27,6 +27,12 @@ Widget Android pour station météo **Ecowitt** (conçu pour la HP2564), aliment
 6. **Ajouter à l'écran d'accueil**, choisis le thème, les mesures de la station et les informations Open-Meteo. Appui long sur le widget → *Reconfigurer* pour les changer.
 7. En cas de doute sur une donnée : section **Diagnostic** de l'app (état de chaque source) + bouton *Tout actualiser maintenant*.
 
+## Modes du widget
+Dans l'application, **Mode du widget** choisit la présentation (réglage commun à tous les widgets) :
+- **Complet** : le grand widget (mesures, prévisions, pluie, heures), un appui actualise ;
+- **Tuiles + page** : en-tête et 7 tuiles (température, pluie, limite neige, vent, humidité, pression, prévisions) ; un appui ouvre une fiche détaillée en plein écran ;
+- **Tuiles + détail** : mêmes tuiles ; un appui affiche le détail directement dans le widget (onglets, retour, ⤢ pour la fiche plein écran), retour automatique aux tuiles après 30 s. Demande un widget d'au moins 4×3 cases ; en dessous, un appui ouvre la fiche plein écran.
+
 ## Actualisation
 
 - Intervalle réglable : 2 / 5 / 10 / 15 min. Un appui sur le widget force l'actualisation.
