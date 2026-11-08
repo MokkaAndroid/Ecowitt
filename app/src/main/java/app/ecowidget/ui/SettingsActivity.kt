@@ -118,6 +118,30 @@ private fun diagnostics(ctx: Context): List<Pair<String, Boolean>> {
         fcAt > 0 -> "Prévisions Open-Meteo : OK à ${clock(fcAt)}" to true
         else -> "Prévisions Open-Meteo : pas encore chargées" to false
     }
+
+    // Pluie à court terme (AROME France 2,5 km via Open-Meteo) : seulement si une position est définie.
+    if (Storage.location(ctx) != null) {
+        val ncAt = Storage.nowcastAt(ctx)
+        val ncErr = Storage.nowcastError(ctx)
+        out += when {
+            ncErr != null && ncAt <= 0 -> "Pluie à court terme (AROME) : indisponible · $ncErr" to false
+            ncErr != null -> "Pluie à court terme (AROME) : échec · $ncErr" to false
+            ncAt > 0 -> "Pluie à court terme (AROME) : OK à ${clock(ncAt)}" to true
+            else -> "Pluie à court terme (AROME) : pas encore chargée" to false
+        }
+
+        // Air et pollens : uniquement quand au moins une info de cette catégorie est utilisée.
+        val airUsed = WeatherRepository.currentNeeds(ctx).air.isNotEmpty()
+        if (airUsed) {
+            val airAt = Storage.airAt(ctx)
+            val airErr = Storage.airError(ctx)
+            out += when {
+                airErr != null -> "Air et pollens : échec · $airErr" to false
+                airAt > 0 -> "Air et pollens : OK à ${clock(airAt)}" to true
+                else -> "Air et pollens : pas encore chargés" to false
+            }
+        }
+    }
     return out
 }
 

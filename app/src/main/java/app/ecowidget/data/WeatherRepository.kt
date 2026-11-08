@@ -22,6 +22,10 @@ object WeatherRepository {
 
     private const val HISTORY_TTL_MS = 15 * 60_000L
     private const val FORECAST_TTL_MS = 10 * 60_000L
+    private const val NOWCAST_TTL_MS = 10 * 60_000L
+    private const val AIR_TTL_MS = 60 * 60_000L
+    private const val NOWCAST_MAX_AGE_MS = 60 * 60_000L
+    private const val AIR_MAX_AGE_MS = 6 * 3600_000L
     private const val FORCE_MIN_GAP_MS = 60_000L
     private const val FORECAST_MAX_AGE_MS = 3 * 3600_000L
 
@@ -43,8 +47,16 @@ object WeatherRepository {
 
     fun forecast(ctx: Context): Forecast? {
         val raw = Storage.forecastRaw(ctx) ?: return null
-        if (System.currentTimeMillis() - Storage.forecastAt(ctx) > FORECAST_MAX_AGE_MS) return null
-        return runCatching { ForecastParser.parse(JSONObject(raw), System.currentTimeMillis() / 1000) }.getOrNull()
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - Storage.forecastAt(ctx) > FORECAST_MAX_AGE_MS) return null
+        // Pluie à court terme (AROME) et air : ignorés s'ils sont trop anciens, la prévision reste affichée.
+        val nowcast = Storage.nowcastRaw(ctx)
+            ?.takeIf { nowMs - Storage.nowcastAt(ctx) <= NOWCAST_MAX_AGE_MS }
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val air = Storage.airRaw(ctx)
+            ?.takeIf { nowMs - Storage.airAt(ctx) <= AIR_MAX_AGE_MS }
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }
+        return runCatching { ForecastParser.parse(JSONObject(raw), nowMs / 1000, nowcast, air) }.getOrNull()
     }
 
     // ---------- Actualisation réseau ----------
@@ -53,7 +65,8 @@ object WeatherRepository {
      * Met à jour les trois sources si nécessaire :
      * - Ecowitt en direct : à chaque appel ;
      * - Ecowitt historique (courbe, tendances) : toutes les 15 min ;
-     * - Open-Meteo (prévisions) : toutes les 10 min.
+     * - Open-Meteo : prévisions et pluie à court terme (AROME) toutes les 10 min, qualité de l'air toutes les heures ;
+     *   dès que la liste des infos choisies change, on redemande immédiatement.
      * `force` (appui sur le widget) contourne ces délais, avec un minimum d'une minute entre deux appels.
      * Retourne null si les mesures en direct sont OK, sinon un message d'erreur lisible.
      */
@@ -72,9 +85,7 @@ object WeatherRepository {
                     }
                     err
                 }
-                val forecast = async {
-                    if (due(Storage.forecastAt(app), FORECAST_TTL_MS, force, now)) refreshForecast(app, now)
-                }
+                val forecast = async { refreshOpenMeteo(app, now, force) }
                 forecast.await()
                 ecowitt.await()
             }
@@ -121,16 +132,58 @@ object WeatherRepository {
         }
     }
 
-    private fun refreshForecast(app: Context, now: Long) {
+    /** Toutes les infos Open-Meteo demandées par les widgets posés (union). */
+    fun currentNeeds(app: Context): Needs {
+        val ids = Storage.allWidgetConfigs(app).filter { it.forecastEnabled }.flatMap { it.forecastMetrics }
+        return OmCatalog.needs(ids)
+    }
+
+    private fun refreshOpenMeteo(app: Context, now: Long, force: Boolean) {
         val loc = Storage.location(app) ?: return
-        try {
-            val json = OpenMeteoClient.fetchForecast(loc)
-            Storage.saveForecast(app, json.toString(), now)
-            Storage.saveForecastError(app, null)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Storage.saveForecastError(app, OpenMeteoClient.describe(e))
+        val needs = currentNeeds(app)
+
+        // 1) Prévisions + variables choisies.
+        val sig = needs.forecastSignature()
+        if (Storage.forecastSig(app) != sig || due(Storage.forecastAt(app), FORECAST_TTL_MS, force, now)) {
+            try {
+                val json = OpenMeteoClient.fetchForecast(loc, needs)
+                Storage.saveForecast(app, json.toString(), now, sig)
+                val fallback = json.optString(OpenMeteoClient.FALLBACK_KEY).takeIf { it.isNotBlank() }
+                Storage.saveForecastError(app, fallback?.let { "Variable refusée par Open-Meteo, infos de base seulement : $it" })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Storage.saveForecastError(app, OpenMeteoClient.describe(e))
+            }
+        }
+
+        // 2) Pluie à court terme : endpoint Météo-France (AROME, pas de 15 min).
+        if (due(Storage.nowcastAt(app), NOWCAST_TTL_MS, force, now)) {
+            try {
+                val json = OpenMeteoClient.fetchNowcast(loc)
+                Storage.saveNowcast(app, json.toString(), now)
+                Storage.saveNowcastError(app, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Storage.saveNowcastError(app, OpenMeteoClient.describe(e))
+            }
+        }
+
+        // 3) Qualité de l'air / pollens : seulement si une info de ce type est choisie.
+        if (needs.air.isNotEmpty()) {
+            val airSig = needs.airSignature()
+            if (Storage.airSig(app) != airSig || due(Storage.airAt(app), AIR_TTL_MS, force, now)) {
+                try {
+                    val json = OpenMeteoClient.fetchAir(loc, needs.air)
+                    Storage.saveAir(app, json.toString(), now, airSig)
+                    Storage.saveAirError(app, null)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Storage.saveAirError(app, OpenMeteoClient.describe(e))
+                }
+            }
         }
     }
 }

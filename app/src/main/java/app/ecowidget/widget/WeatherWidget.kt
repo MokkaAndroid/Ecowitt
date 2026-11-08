@@ -49,7 +49,8 @@ import app.ecowidget.data.Forecast
 import app.ecowidget.data.HourPoint
 import app.ecowidget.data.Metric
 import app.ecowidget.data.MetricValue
-import app.ecowidget.data.OmMetric
+import app.ecowidget.data.OmCatalog
+import app.ecowidget.data.OmItem
 import app.ecowidget.data.Storage
 import app.ecowidget.data.WeatherCodes
 import app.ecowidget.data.WeatherRepository
@@ -110,6 +111,8 @@ private const val OM_HEADER = 30f
 private const val DIVIDER = 10f
 private const val CHIP_ROW = 38f
 private const val HOURS_ROW = 54f
+private const val BANNER_ROW = 24f
+private const val MIN_HERO_BLOCK = 49f
 
 private fun statusOf(state: CachedState, showTime: Boolean): Status {
     val snap = state.snapshot ?: return Status("", true)
@@ -232,7 +235,10 @@ private fun Compact(
     val heroValue = hero.read(snap, derived)
     val heroColor = heroColor(p, hero, heroValue, snap, derived)
     val f = info.forecast
-    val firstOm = config.forecastMetrics.firstOrNull { it != OmMetric.NEXT_HOURS }
+    val omItems = if (config.forecastEnabled && f != null) config.forecastMetrics.mapNotNull { OmCatalog.byId(it) } else emptyList()
+    // Le message pluie est prioritaire sur le format court.
+    val firstOm = omItems.firstOrNull { it.id == OmCatalog.RAIN_MESSAGE }
+        ?: omItems.firstOrNull { it.id != OmCatalog.NEXT_HOURS }
 
     var room = width.value - 2f * PAD_H - 100f
     val showOm = config.forecastEnabled && f != null && room >= 100f
@@ -269,7 +275,7 @@ private fun Compact(
                 )
                 if (firstOm != null) {
                     Text(
-                        text = joinValue(firstOm.read(f)),
+                        text = joinValue(firstOm.read(f, snap)),
                         style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
                         maxLines = 1,
                     )
@@ -300,13 +306,27 @@ private fun Full(
     val showOm = config.forecastEnabled
     val f = info.forecast
 
+    val items = if (showOm && f != null) config.forecastMetrics.mapNotNull { OmCatalog.byId(it) } else emptyList()
+    val wantHours = f != null && f.hours.isNotEmpty() && items.any { it.id == OmCatalog.NEXT_HOURS }
+
     // ---- Budget de hauteur ----
     var rem = size.height.value - 2f * PAD_V
     if (showOm) rem -= OM_HEADER + DIVIDER
+
+    // Le message pluie a sa propre ligne s'il reste de la place pour une valeur principale réduite ;
+    // sinon il passe en tête des infos à droite de l'en-tête.
+    val bannerCandidate = items.firstOrNull { it.id == OmCatalog.RAIN_MESSAGE }
+    val bannerFits = bannerCandidate != null && rem >= BANNER_ROW + MIN_HERO_BLOCK
+    val banner = if (bannerFits) bannerCandidate else null
+    if (bannerFits) rem -= BANNER_ROW
+    val plain = listOfNotNull(if (bannerFits) null else bannerCandidate) +
+        items.filter { it.id != OmCatalog.NEXT_HOURS && it.id != OmCatalog.RAIN_MESSAGE }
+
     val heroSp = when {
         rem >= 150f -> 48
         rem >= 95f -> 40
-        else -> 32
+        rem >= 70f -> 32
+        else -> 26
     }
     rem -= 16f + heroSp * 1.25f
 
@@ -316,8 +336,7 @@ private fun Full(
         else -> 1
     }
     val ecoChips = config.metrics.drop(1)
-    val omChips = if (showOm && f != null) config.forecastMetrics.filter { it != OmMetric.NEXT_HOURS }.drop(1) else emptyList()
-    val wantHours = showOm && f != null && f.hours.isNotEmpty() && OmMetric.NEXT_HOURS in config.forecastMetrics
+    val omChips = plain.drop(1)
 
     val ecoRowsMax = ceil(ecoChips.size / columns.toDouble()).toInt()
     val omRowsMax = ceil(omChips.size / columns.toDouble()).toInt()
@@ -334,10 +353,11 @@ private fun Full(
     Column(modifier = GlanceModifier.fillMaxSize()) {
         // ───── Haut : Open-Meteo ─────
         if (showOm) {
-            OmHeader(p, accent, config, info)
+            OmHeader(p, accent, plain.firstOrNull(), info, snap)
+            if (banner != null && f != null) RainBanner(p, accent, banner.read(f, snap))
             if (omRows > 0) ChipGrid(columns, omChips.take(omRows * columns)) { m ->
                 if (f != null) {
-                    val v = m.read(f)
+                    val v = m.read(f, snap)
                     InfoChip(p, accent, m.icon, joinValue(v), m.shortLabel, v.highlight, null)
                 }
             }
@@ -456,7 +476,7 @@ private fun chipValue(m: Metric, v: MetricValue): String =
 // ───────────────────────────── Blocs ─────────────────────────────
 
 @Composable
-private fun OmHeader(p: WidgetTheme, accent: Color, config: WidgetConfig, info: ForecastInfo) {
+private fun OmHeader(p: WidgetTheme, accent: Color, first: OmItem?, info: ForecastInfo, snap: WeatherSnapshot?) {
     val f = info.forecast
     Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         if (f != null) {
@@ -481,9 +501,8 @@ private fun OmHeader(p: WidgetTheme, accent: Color, config: WidgetConfig, info: 
                     maxLines = 1,
                 )
             }
-            val first = config.forecastMetrics.firstOrNull { it != OmMetric.NEXT_HOURS }
             if (first != null) {
-                val v = first.read(f)
+                val v = first.read(f, snap)
                 Spacer(modifier = GlanceModifier.width(8.dp))
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
@@ -519,6 +538,33 @@ private fun OmHeader(p: WidgetTheme, accent: Color, config: WidgetConfig, info: 
                 style = TextStyle(color = ColorProvider(p.muted), fontSize = 11.sp),
                 maxLines = 2,
                 modifier = GlanceModifier.defaultWeight(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RainBanner(p: WidgetTheme, accent: Color, v: MetricValue) {
+    if (v.value != Metric.MISSING.value) {
+        Row(
+            modifier = GlanceModifier.fillMaxWidth().padding(top = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Image(
+                provider = ImageProvider(R.drawable.ic_cloud_rain),
+                contentDescription = null,
+                modifier = GlanceModifier.size(14.dp),
+                colorFilter = ColorFilter.tint(ColorProvider(if (v.highlight) p.rain else accent)),
+            )
+            Spacer(modifier = GlanceModifier.width(6.dp))
+            Text(
+                text = joinValue(v),
+                style = TextStyle(
+                    color = ColorProvider(if (v.highlight) p.rain else p.text),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                maxLines = 1,
             )
         }
     }

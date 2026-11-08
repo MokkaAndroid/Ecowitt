@@ -30,31 +30,72 @@ data class Place(
  */
 object OpenMeteoClient {
 
-    class OpenMeteoException(message: String) : Exception(message)
+    class OpenMeteoException(
+        message: String,
+        val httpCode: Int = 0,
+        /** Explication renvoyée par Open-Meteo en cas de requête refusée (ex. variable inconnue). */
+        val reason: String? = null,
+    ) : Exception(message)
 
-    fun fetchForecast(loc: Location): JSONObject {
+    /** Clé ajoutée à la réponse quand la requête complète a été refusée et qu'on est reparti sur les variables de base. */
+    const val FALLBACK_KEY = "_fallback"
+
+    private val BASE_CURRENT = setOf("weather_code", "is_day")
+    private val BASE_HOURLY = setOf("temperature_2m", "weather_code", "is_day", "precipitation_probability")
+    private val BASE_DAILY = setOf("temperature_2m_max", "temperature_2m_min", "sunrise", "sunset")
+
+    private fun builder(host: String, path: String, loc: Location, withElevation: Boolean): Uri.Builder {
         val b = Uri.Builder()
             .scheme("https")
-            .authority("api.open-meteo.com")
-            .appendEncodedPath("v1/forecast")
+            .authority(host)
+            .appendEncodedPath(path)
             .appendQueryParameter("latitude", "%.4f".format(java.util.Locale.ROOT, loc.latitude))
             .appendQueryParameter("longitude", "%.4f".format(java.util.Locale.ROOT, loc.longitude))
-            .appendQueryParameter("current", "weather_code,is_day,cloud_cover")
-            .appendQueryParameter(
-                "hourly",
-                "temperature_2m,weather_code,is_day,precipitation_probability,freezing_level_height,snow_depth",
-            )
-            .appendQueryParameter("minutely_15", "precipitation")
-            .appendQueryParameter(
-                "daily",
-                "temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum," +
-                    "precipitation_probability_max,uv_index_max,sunrise,sunset," +
-                    "wind_speed_10m_max,wind_gusts_10m_max",
-            )
             .appendQueryParameter("timezone", "auto")
             .appendQueryParameter("timeformat", "unixtime")
             .appendQueryParameter("forecast_days", "2")
-        loc.elevation?.let { b.appendQueryParameter("elevation", "%.0f".format(java.util.Locale.ROOT, it)) }
+        if (withElevation) {
+            loc.elevation?.let { b.appendQueryParameter("elevation", "%.0f".format(java.util.Locale.ROOT, it)) }
+        }
+        return b
+    }
+
+    private fun requestForecast(loc: Location, needs: Needs): JSONObject {
+        val b = builder("api.open-meteo.com", "v1/forecast", loc, true)
+            .appendQueryParameter("current", (BASE_CURRENT + needs.current).sorted().joinToString(","))
+            .appendQueryParameter("hourly", (BASE_HOURLY + needs.hourly).sorted().joinToString(","))
+            .appendQueryParameter("daily", (BASE_DAILY + needs.daily).sorted().joinToString(","))
+            .appendQueryParameter("minutely_15", "precipitation")
+        return getJson(b.build().toString())
+    }
+
+    /**
+     * Prévisions + toutes les variables choisies dans les widgets. Si Open-Meteo refuse la requête (variable
+     * inconnue, par exemple une variable personnalisée mal orthographiée), on repart sur les variables de base :
+     * le widget reste utilisable et le diagnostic explique le problème.
+     */
+    fun fetchForecast(loc: Location, needs: Needs): JSONObject {
+        try {
+            return requestForecast(loc, needs)
+        } catch (e: OpenMeteoException) {
+            if (e.httpCode != 400 || !needs.hasForecastExtras) throw e
+            val json = requestForecast(loc, Needs.EMPTY)
+            json.put(FALLBACK_KEY, e.reason ?: "une variable est refusée")
+            return json
+        }
+    }
+
+    /** Pluie à court terme : modèles AROME de Météo-France (pas de 15 min, horizon 6 h, mise à jour horaire). */
+    fun fetchNowcast(loc: Location): JSONObject {
+        val b = builder("api.open-meteo.com", "v1/meteofrance", loc, true)
+            .appendQueryParameter("minutely_15", "precipitation")
+        return getJson(b.build().toString())
+    }
+
+    /** Qualité de l'air et pollens (API air-quality, valeurs horaires). */
+    fun fetchAir(loc: Location, variables: Set<String>): JSONObject {
+        val b = builder("air-quality-api.open-meteo.com", "v1/air-quality", loc, false)
+            .appendQueryParameter("hourly", variables.sorted().joinToString(","))
         return getJson(b.build().toString())
     }
 
@@ -102,7 +143,18 @@ object OpenMeteoClient {
             conn.setRequestProperty("Accept", "application/json")
             val http = conn.responseCode
             if (http != HttpsURLConnection.HTTP_OK) {
-                throw OpenMeteoException("Open-Meteo indisponible (HTTP $http)")
+                val reason = runCatching {
+                    conn.errorStream?.bufferedReader()?.use { it.readText() }
+                        ?.let { JSONObject(it).optString("reason") }
+                        ?.takeIf { it.isNotBlank() }
+                        ?.take(160)
+                }.getOrNull()
+                val msg = when (http) {
+                    400 -> "Open-Meteo a refusé la requête" + (reason?.let { " : $it" } ?: "")
+                    429 -> "Open-Meteo : limite de requêtes atteinte"
+                    else -> "Open-Meteo indisponible (HTTP $http)"
+                }
+                throw OpenMeteoException(msg, http, reason)
             }
             return JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
         } finally {

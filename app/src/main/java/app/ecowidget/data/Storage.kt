@@ -1,9 +1,12 @@
 package app.ecowidget.data
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import app.ecowidget.widget.WeatherWidgetReceiver
 import app.ecowidget.widget.WidgetTheme
 
 /** Configuration d'un widget (une par instance posée sur l'écran d'accueil). */
@@ -14,7 +17,8 @@ data class WidgetConfig(
     val showTime: Boolean = true,
     /** Bloc Open-Meteo (haut du widget). */
     val forecastEnabled: Boolean = true,
-    val forecastMetrics: List<OmMetric> = listOf(OmMetric.DAY_RANGE, OmMetric.NEXT_RAIN, OmMetric.PRECIP_PROB),
+    /** Identifiants du catalogue Open-Meteo (voir [OmCatalog]). */
+    val forecastMetrics: List<String> = listOf("DAY_RANGE", OmCatalog.RAIN_MESSAGE, "PRECIP_PROB"),
 )
 
 object Storage {
@@ -109,7 +113,11 @@ object Storage {
             }
             .apply()
         // Nouvelle position : les prévisions en cache ne sont plus valables.
-        plain(ctx).edit().remove("forecast_raw").remove("forecast_at").apply()
+        plain(ctx).edit()
+            .remove("forecast_raw").remove("forecast_at").remove("forecast_sig")
+            .remove("nowcast_raw").remove("nowcast_at")
+            .remove("air_raw").remove("air_at").remove("air_sig")
+            .apply()
     }
 
     // ---- Réglages généraux ----
@@ -138,7 +146,7 @@ object Storage {
         val omMetrics = if (p.contains("w$appWidgetId.om_metrics")) {
             p.getString("w$appWidgetId.om_metrics", "").orEmpty()
                 .split(',')
-                .mapNotNull { OmMetric.fromName(it) }
+                .filter { OmCatalog.byId(it) != null }
                 .distinct()
         } else {
             default.forecastMetrics
@@ -152,7 +160,7 @@ object Storage {
             .putString("w$appWidgetId.metrics", c.metrics.joinToString(",") { it.name })
             .putBoolean("w$appWidgetId.show_time", c.showTime)
             .putBoolean("w$appWidgetId.om_enabled", c.forecastEnabled)
-            .putString("w$appWidgetId.om_metrics", c.forecastMetrics.joinToString(",") { it.name })
+            .putString("w$appWidgetId.om_metrics", c.forecastMetrics.joinToString(","))
             .apply()
     }
 
@@ -164,6 +172,15 @@ object Storage {
             .remove("w$appWidgetId.om_enabled")
             .remove("w$appWidgetId.om_metrics")
             .apply()
+    }
+
+    /** Configurations de tous les widgets posés : sert à demander à Open-Meteo l'union des infos choisies. */
+    fun allWidgetConfigs(ctx: Context): List<WidgetConfig> {
+        val app = ctx.applicationContext
+        val ids = runCatching {
+            AppWidgetManager.getInstance(app).getAppWidgetIds(ComponentName(app, WeatherWidgetReceiver::class.java))
+        }.getOrDefault(IntArray(0))
+        return ids.map { widgetConfig(app, it) }
     }
 
     // ---- Caches des réponses (données météo : non sensibles) ----
@@ -192,11 +209,35 @@ object Storage {
     fun forecastAt(ctx: Context): Long = plain(ctx).getLong("forecast_at", 0L)
     fun forecastError(ctx: Context): String? = plain(ctx).getString("forecast_error", null)
 
-    fun saveForecast(ctx: Context, raw: String, atMs: Long) {
-        plain(ctx).edit().putString("forecast_raw", raw).putLong("forecast_at", atMs).apply()
+    /** Empreinte des variables demandées lors de la dernière requête de prévisions (pour redemander si la liste change). */
+    fun forecastSig(ctx: Context): String? = plain(ctx).getString("forecast_sig", null)
+
+    fun saveForecast(ctx: Context, raw: String, atMs: Long, sig: String) {
+        plain(ctx).edit().putString("forecast_raw", raw).putLong("forecast_at", atMs).putString("forecast_sig", sig).apply()
     }
 
     fun saveForecastError(ctx: Context, message: String?) = putOrRemove(ctx, "forecast_error", message)
+
+    fun nowcastRaw(ctx: Context): String? = plain(ctx).getString("nowcast_raw", null)
+    fun nowcastAt(ctx: Context): Long = plain(ctx).getLong("nowcast_at", 0L)
+    fun nowcastError(ctx: Context): String? = plain(ctx).getString("nowcast_error", null)
+
+    fun saveNowcast(ctx: Context, raw: String, atMs: Long) {
+        plain(ctx).edit().putString("nowcast_raw", raw).putLong("nowcast_at", atMs).apply()
+    }
+
+    fun saveNowcastError(ctx: Context, message: String?) = putOrRemove(ctx, "nowcast_error", message)
+
+    fun airRaw(ctx: Context): String? = plain(ctx).getString("air_raw", null)
+    fun airAt(ctx: Context): Long = plain(ctx).getLong("air_at", 0L)
+    fun airSig(ctx: Context): String? = plain(ctx).getString("air_sig", null)
+    fun airError(ctx: Context): String? = plain(ctx).getString("air_error", null)
+
+    fun saveAir(ctx: Context, raw: String, atMs: Long, sig: String) {
+        plain(ctx).edit().putString("air_raw", raw).putLong("air_at", atMs).putString("air_sig", sig).apply()
+    }
+
+    fun saveAirError(ctx: Context, message: String?) = putOrRemove(ctx, "air_error", message)
 
     private fun putOrRemove(ctx: Context, key: String, value: String?) {
         plain(ctx).edit().apply {

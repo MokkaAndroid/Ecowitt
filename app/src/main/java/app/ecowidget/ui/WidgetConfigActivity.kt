@@ -40,7 +40,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.ecowidget.data.Metric
-import app.ecowidget.data.OmMetric
 import app.ecowidget.data.Storage
 import app.ecowidget.data.WidgetConfig
 import app.ecowidget.update.UpdateScheduler
@@ -105,7 +104,7 @@ private fun ConfigScreen(
     var showTime by remember { mutableStateOf(initial.showTime) }
     var omEnabled by remember { mutableStateOf(initial.forecastEnabled) }
     val selected = remember { mutableStateListOf<Metric>().apply { addAll(initial.metrics) } }
-    val omSelected = remember { mutableStateListOf<OmMetric>().apply { addAll(initial.forecastMetrics) } }
+    val omSelected = remember { mutableStateListOf<String>().apply { addAll(initial.forecastMetrics) } }
     val hasCredentials = remember(tick) { Storage.credentials(ctx).isComplete }
     val location = remember(tick) { Storage.location(ctx) }
 
@@ -201,19 +200,12 @@ private fun ConfigScreen(
                         )
                     }
                     Text(
-                        "La condition du moment s'affiche toujours. La première information est placée à droite " +
-                            "de l'en-tête, les suivantes en pastilles selon la place disponible.",
+                        "La condition du moment s'affiche toujours. Le « message pluie » apparaît en bandeau, " +
+                            "la première autre info à droite de l'en-tête, les suivantes en pastilles selon la place disponible.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    ReorderPicker(
-                        selected = omSelected,
-                        all = OmMetric.entries,
-                        label = { it.label },
-                        icon = { it.icon },
-                        mainFirst = false,
-                        minSelected = 0,
-                    )
+                    OmPicker(selected = omSelected)
                 }
             }
 
