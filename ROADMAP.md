@@ -50,6 +50,8 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 - 🧪 v0.3 : « Prochaine pluie » et message pluie via `/v1/meteofrance` (AROME France / HD, `minutely_15`, horizon 6 h, mise à jour **horaire**) — modèle numérique, **pas du radar** ; repli sur le modèle par défaut si indisponible
 - 🧪 v0.3 : info « Message pluie » (« Pluie dans ~20 min », « Pas de pluie dans les 6 h »…) en bandeau sous l'en-tête, ou en tête des infos de droite si la hauteur manque
 - ⏳ Météo-France **PIAF** (fusion extrapolation radar + AROME-PI, pas de 5 min, horizon 3 h, GRIB2 + WCS/WMS via portail-api.meteofrance.fr) : à valider avant dev — souscrire à l'API, lire la documentation (extraction par point via WCS ?), jeton (1 h) / Application ID, quotas, couverture radar en vallée alpine
+- 🧪 v0.3.1 : réglage « Météo-France · pluie imminente (test) » : Application ID chiffré (Keystore), jeton OAuth2 (`POST portail-api.meteofrance.fr/token`, renouvelé automatiquement), lecture des catalogues WCS AROME-PI et PIAF (adresse PIAF supposée, adresse personnalisée possible) — résultats affichés dans l'écran de réglages
+- ⏳ Lecture ponctuelle PIAF : `GetCoverage` WCS sur une emprise minuscule autour de la station (maille 0,01°), format GeoTIFF (plus simple à décoder que le GRIB) ; dépend du résultat du test ci-dessus (identifiant de couche, pas de temps, horizon)
 - ⏳ Message unique à priorité : pluie mesurée par la station > PIAF > AROME > modèle par défaut (« Pluie dans ~20 min », « Pas de pluie dans les 3 h »)
 - ⛔ API non publique de l'app Météo-France (« pluie dans l'heure ») : non documentée, peut casser sans préavis
 
@@ -122,3 +124,4 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 13. [ ] Ajouter « Message pluie » : texte cohérent avec la météo réelle (pluie dans X min / pas de pluie), s'affiche en bandeau si le widget est assez haut
 14. [ ] Ajouter une info « Qualité de l'air » et un pollen : valeurs plausibles (ligne « Air et pollens » dans Diagnostic) ; hors saison un pollen peut afficher « — »
 15. [ ] Variable personnalisée : saisir `wet_bulb_temperature_2m` (horaire) → valeur affichée ; saisir un nom faux → message de refus dans Diagnostic, le widget garde les infos de base
+16. [ ] Réglages → « Météo-France · pluie imminente (test) » : coller l'Application ID, « Enregistrer et tester » → ligne « Jeton : OK », puis AROME-PI et PIAF (noter toute ligne en échec ; si PIAF = « adresse introuvable », coller l'adresse GetCapabilities exacte copiée depuis le portail, sans jeton)
