@@ -100,6 +100,40 @@ object Storage {
         null
     }
 
+    // ---- Météo-France (portail-api.meteofrance.fr) : identifiant d'application et jeton, chiffrés ----
+
+    fun meteoFranceAppId(ctx: Context): String = try {
+        securePrefs(ctx).getString("mf_app_id", "").orEmpty()
+    } catch (e: Exception) {
+        ""
+    }
+
+    fun saveMeteoFranceAppId(ctx: Context, appId: String) {
+        val id = appId.trim()
+        val e = securePrefs(ctx).edit().putString("mf_app_id", id)
+        // Nouvel identifiant : l'ancien jeton n'est plus valable.
+        if (id != meteoFranceAppId(ctx)) e.remove("mf_token").remove("mf_token_exp")
+        e.apply()
+    }
+
+    /** Jeton et heure d'expiration (ms), ou null. */
+    fun meteoFranceToken(ctx: Context): Pair<String, Long>? = try {
+        val p = securePrefs(ctx)
+        val t = p.getString("mf_token", null)
+        val exp = p.getLong("mf_token_exp", 0L)
+        if (t.isNullOrBlank() || exp <= 0L) null else t to exp
+    } catch (e: Exception) {
+        null
+    }
+
+    fun saveMeteoFranceToken(ctx: Context, token: String, expiresAtMs: Long) {
+        securePrefs(ctx).edit().putString("mf_token", token).putLong("mf_token_exp", expiresAtMs).apply()
+    }
+
+    fun clearMeteoFrance(ctx: Context) {
+        securePrefs(ctx).edit().remove("mf_app_id").remove("mf_token").remove("mf_token_exp").apply()
+    }
+
     fun saveLocation(ctx: Context, loc: Location) {
         // Coordonnées arrondies à 0,01° (~1 km) : suffisant pour un modèle météo, et on ne
         // transmet pas la position exacte de la maison à un service tiers.

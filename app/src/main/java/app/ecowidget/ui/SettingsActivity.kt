@@ -48,6 +48,7 @@ import app.ecowidget.data.EcowittClient
 import app.ecowidget.data.HistoryParser
 import app.ecowidget.data.Location
 import app.ecowidget.data.Metric
+import app.ecowidget.data.MeteoFranceClient
 import app.ecowidget.data.OpenMeteoClient
 import app.ecowidget.data.Place
 import app.ecowidget.data.SnapshotParser
@@ -158,6 +159,13 @@ private fun SettingsScreen(tick: Int) {
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
     var testOk by remember { mutableStateOf(false) }
+
+    // Météo-France (pluie imminente) : identifiant d'application chiffré, jamais affiché en clair par défaut.
+    var mfAppId by remember { mutableStateOf(Storage.meteoFranceAppId(ctx)) }
+    var mfUrl by remember { mutableStateOf("") }
+    var mfReveal by remember { mutableStateOf(false) }
+    var mfBusy by remember { mutableStateOf(false) }
+    var mfLines by remember { mutableStateOf<List<MeteoFranceClient.TestLine>>(emptyList()) }
     var interval by remember { mutableIntStateOf(Storage.intervalMinutes(ctx)) }
 
     var location by remember { mutableStateOf(Storage.location(ctx)) }
@@ -408,6 +416,76 @@ private fun SettingsScreen(tick: Int) {
 
                 locMessage?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            Section("Météo-France · pluie imminente (test)") {
+                Text(
+                    "Sur portail-api.meteofrance.fr : abonne-toi aux API PIAF et AROME-PI, puis « Mes API » → « Générer token » → " +
+                        "dans la commande curl, copie la longue chaîne qui suit « Basic ». C'est ton Application ID : garde-le secret.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = mfAppId,
+                    onValueChange = { mfAppId = it.trim() },
+                    label = { Text("Application ID Météo-France") },
+                    singleLine = true,
+                    isError = mfAppId.isNotBlank() && !MeteoFranceClient.isValidAppId(mfAppId),
+                    visualTransformation = if (mfReveal) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = mfUrl,
+                    onValueChange = { mfUrl = it.trim() },
+                    label = { Text("Adresse GetCapabilities à tester (optionnel)") },
+                    supportingText = {
+                        Text("Commence par https://public-api.meteofrance.fr/public/… (sans jeton). Utile si l'adresse PIAF supposée est introuvable.")
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { mfReveal = !mfReveal }) {
+                        Text(if (mfReveal) "Masquer l'identifiant" else "Afficher l'identifiant")
+                    }
+                    TextButton(
+                        enabled = !mfBusy && (mfAppId.isNotBlank() || Storage.meteoFranceAppId(ctx).isNotBlank()),
+                        onClick = {
+                            Storage.clearMeteoFrance(ctx)
+                            mfAppId = ""
+                            mfLines = emptyList()
+                        },
+                    ) { Text("Effacer") }
+                }
+                Button(
+                    enabled = !mfBusy && MeteoFranceClient.isValidAppId(mfAppId),
+                    onClick = {
+                        val id = MeteoFranceClient.normalizeAppId(mfAppId)
+                        Storage.saveMeteoFranceAppId(ctx, id)
+                        mfAppId = id
+                        mfBusy = true
+                        mfLines = emptyList()
+                        val url = mfUrl
+                        scope.launch {
+                            mfLines = withContext(Dispatchers.IO) {
+                                runCatching { MeteoFranceClient.test(ctx, url) }.getOrElse {
+                                    listOf(MeteoFranceClient.TestLine("Test impossible · " + MeteoFranceClient.describe(it), false))
+                                }
+                            }
+                            mfBusy = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (mfBusy) "Test en cours…" else "Enregistrer et tester Météo-France") }
+                mfLines.forEach { line ->
+                    Text(
+                        line.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (line.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    )
                 }
             }
 
