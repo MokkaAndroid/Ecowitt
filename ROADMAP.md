@@ -3,7 +3,7 @@
 Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hors périmètre
 
 > État au 08/11/2026 : **v0.1** installée et validée sur téléphone (température, pluie, humidité OK).
-> **v0.2** (Open-Meteo + courbe 24 h + couleurs dynamiques + tendances) : code écrit, compilation GitHub Actions en cours de vérification,
+> **v0.2** (Open-Meteo + courbe 24 h + couleurs dynamiques + tendances) : code écrit, **compile** (build GitHub Actions réussi le 08/11/2026, APK ≈ 11 Mo),
 > **pas encore testée sur téléphone**. Voir la checklist en bas de page.
 
 ## Phase 0 — Cadrage
