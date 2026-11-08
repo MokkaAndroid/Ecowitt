@@ -2,6 +2,8 @@ package app.ecowidget.widget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.TextUnit
@@ -12,6 +14,7 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
@@ -26,6 +29,7 @@ import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
+import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
@@ -38,16 +42,24 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import app.ecowidget.R
 import app.ecowidget.data.CachedState
+import app.ecowidget.data.Derived
+import app.ecowidget.data.Forecast
+import app.ecowidget.data.HourPoint
 import app.ecowidget.data.Metric
 import app.ecowidget.data.MetricValue
+import app.ecowidget.data.OmMetric
 import app.ecowidget.data.Storage
+import app.ecowidget.data.WeatherCodes
 import app.ecowidget.data.WeatherRepository
 import app.ecowidget.data.WeatherSnapshot
 import app.ecowidget.data.WidgetConfig
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.math.ceil
+import kotlin.math.min
 
 class WeatherWidget : GlanceAppWidget() {
 
@@ -58,23 +70,46 @@ class WeatherWidget : GlanceAppWidget() {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         val config = Storage.widgetConfig(context, appWidgetId)
         val state = WeatherRepository.cached(context)
-        provideContent { WidgetBody(config, state) }
+        val derived = WeatherRepository.derived(context, state.snapshot)
+        val info = ForecastInfo(
+            forecast = if (config.forecastEnabled) WeatherRepository.forecast(context) else null,
+            error = Storage.forecastError(context),
+            place = Storage.location(context)?.label,
+            hasLocation = Storage.location(context) != null,
+        )
+        provideContent { WidgetBody(config, state, derived, info) }
     }
 }
 
 /** Appui sur le widget = actualisation immédiate. */
 class RefreshCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        WeatherRepository.refresh(context)
+        WeatherRepository.refresh(context, force = true)
         WeatherWidget().updateAll(context)
     }
 }
 
-// ───────────────────────────── Mise en page ─────────────────────────────
+// ───────────────────────────── Modèles d'affichage ─────────────────────────────
 
 private data class Status(val text: String, val warn: Boolean)
 
+private data class ForecastInfo(
+    val forecast: Forecast?,
+    val error: String?,
+    val place: String?,
+    val hasLocation: Boolean,
+)
+
 private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+private val HOUR_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("H'h'")
+
+// Hauteurs estimées (dp) des blocs, pour décider de ce qui rentre.
+private const val PAD_H = 14
+private const val PAD_V = 10
+private const val OM_HEADER = 30f
+private const val DIVIDER = 10f
+private const val CHIP_ROW = 38f
+private const val HOURS_ROW = 54f
 
 private fun statusOf(state: CachedState, showTime: Boolean): Status {
     val snap = state.snapshot ?: return Status("", true)
@@ -94,27 +129,67 @@ private fun statusOf(state: CachedState, showTime: Boolean): Status {
     return Status(text, warn = suffix.isNotEmpty())
 }
 
+/** Température (°C) qui pilote la couleur d'une mesure, ou null si la mesure n'est pas une température. */
+private fun tempOf(m: Metric, s: WeatherSnapshot, d: Derived?): Double? = when (m) {
+    Metric.OUTDOOR_TEMP -> s.outdoorTemp
+    Metric.FEELS_LIKE -> s.feelsLike
+    Metric.DEW_POINT -> s.dewPoint
+    Metric.DAY_MIN -> d?.dayMin
+    Metric.DAY_MAX -> d?.dayMax
+    Metric.INDOOR_TEMP -> s.indoorTemp
+    else -> null
+}
+
+private fun frostBadge(t: Double?): String? = when {
+    t == null -> null
+    t <= 0.0 -> "Gel"
+    t <= 3.0 -> "Risque de gel"
+    else -> null
+}
+
+private fun trendColor(p: WidgetTheme, trend: Int): Color = when {
+    trend > 0 -> if (p.isLight) Color(0xFFEA580C) else Color(0xFFFDBA74)
+    else -> if (p.isLight) Color(0xFF0284C7) else Color(0xFF7DD3FC)
+}
+
+private fun trendGlyph(trend: Int?): String? = when {
+    trend == null || trend == 0 -> null
+    trend > 0 -> "▲"
+    else -> "▼"
+}
+
+private fun joinValue(v: MetricValue): String = when {
+    v.unit.isEmpty() -> v.value
+    v.unit.startsWith("°") || v.unit == "%" -> v.value + v.unit
+    else -> v.value + " " + v.unit
+}
+
+// ───────────────────────────── Mise en page ─────────────────────────────
+
 @Composable
-private fun WidgetBody(config: WidgetConfig, state: CachedState) {
+private fun WidgetBody(config: WidgetConfig, state: CachedState, derived: Derived?, info: ForecastInfo) {
     val p = config.theme
     val size = LocalSize.current
     val snap = state.snapshot
+    val raining = snap?.isRaining == true
 
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ImageProvider(p.background))
+            .background(ImageProvider(if (raining) p.backgroundRain else p.background))
             .clickable(actionRunCallback<RefreshCallback>())
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = PAD_H.dp, vertical = PAD_V.dp),
     ) {
         if (snap == null) {
             EmptyState(p, state)
         } else {
+            // L'accent suit la température ; il passe au bleu pluie quand il pleut.
+            val accent = if (raining) p.rain else TempColors.forTemp(snap.outdoorTemp, p.isLight, p.accent)
             val status = statusOf(state, config.showTime)
             if (size.height < 100.dp) {
-                Compact(p, config, snap, status, size.width)
+                Compact(p, accent, config, snap, derived, info, status, size.width)
             } else {
-                Full(p, config, snap, status, size)
+                Full(p, accent, config, snap, derived, info, status, size)
             }
         }
     }
@@ -141,12 +216,28 @@ private fun EmptyState(p: WidgetTheme, state: CachedState) {
     }
 }
 
-/** Format court (hauteur < 100 dp) : valeur principale à gauche, 0 à 3 mesures à droite. */
+/** Format court (hauteur < 100 dp) : valeur principale, météo du moment, puis quelques mesures. */
 @Composable
-private fun Compact(p: WidgetTheme, config: WidgetConfig, snap: WeatherSnapshot, status: Status, width: Dp) {
+private fun Compact(
+    p: WidgetTheme,
+    accent: Color,
+    config: WidgetConfig,
+    snap: WeatherSnapshot,
+    derived: Derived?,
+    info: ForecastInfo,
+    status: Status,
+    width: Dp,
+) {
     val hero = config.metrics.first()
-    val heroValue = hero.read(snap)
-    val chipCount = ((width.value - 32f - 100f) / 72f).toInt().coerceIn(0, 3)
+    val heroValue = hero.read(snap, derived)
+    val heroColor = heroColor(p, hero, heroValue, snap, derived)
+    val f = info.forecast
+    val firstOm = config.forecastMetrics.firstOrNull { it != OmMetric.NEXT_HOURS }
+
+    var room = width.value - 2f * PAD_H - 100f
+    val showOm = config.forecastEnabled && f != null && room >= 100f
+    if (showOm) room -= 100f
+    val chipCount = (room / 74f).toInt().coerceIn(0, 3)
 
     Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = GlanceModifier.defaultWeight(), verticalAlignment = Alignment.CenterVertically) {
@@ -159,34 +250,134 @@ private fun Compact(p: WidgetTheme, config: WidgetConfig, snap: WeatherSnapshot,
                 ),
                 maxLines = 1,
             )
-            HeroValue(p, heroValue, 30.sp)
+            HeroValue(p, heroValue, 30.sp, heroColor)
+        }
+        if (showOm && f != null) {
+            Spacer(modifier = GlanceModifier.width(8.dp))
+            Image(
+                provider = ImageProvider(WeatherCodes.icon(f.code, f.isDay ?: true)),
+                contentDescription = null,
+                modifier = GlanceModifier.size(22.dp),
+                colorFilter = ColorFilter.tint(ColorProvider(accent)),
+            )
+            Spacer(modifier = GlanceModifier.width(6.dp))
+            Column {
+                Text(
+                    text = WeatherCodes.label(f.code, f.isDay ?: true),
+                    style = TextStyle(color = ColorProvider(p.text), fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                )
+                if (firstOm != null) {
+                    Text(
+                        text = joinValue(firstOm.read(f)),
+                        style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
+                        maxLines = 1,
+                    )
+                }
+            }
         }
         config.metrics.drop(1).take(chipCount).forEach { m ->
-            Spacer(modifier = GlanceModifier.width(12.dp))
-            Chip(p, m, snap)
+            Spacer(modifier = GlanceModifier.width(10.dp))
+            val v = m.read(snap, derived)
+            InfoChip(p, accent, m.icon, chipValue(m, v), m.label, v.highlight, v.trend)
         }
     }
 }
 
-/** Format large : en-tête, valeur principale, puis grille de mesures selon la place disponible. */
+/** Format large : prévisions Open-Meteo en haut, station Ecowitt en bas. */
 @Composable
-private fun Full(p: WidgetTheme, config: WidgetConfig, snap: WeatherSnapshot, status: Status, size: DpSize) {
-    val hero = config.metrics.first()
-    val heroValue = hero.read(snap)
-    val heroSize = if (size.height >= 150.dp) 48.sp else 38.sp
-    val columns = if (size.width >= 190.dp) 2 else 1
-    val gridHeight = size.height.value - 24f - 16f - heroSize.value * 1.3f - 8f
-    val rows = (gridHeight / 38f).toInt().coerceAtLeast(0)
-    val shown = config.metrics.drop(1).take(rows * columns)
+private fun Full(
+    p: WidgetTheme,
+    accent: Color,
+    config: WidgetConfig,
+    snap: WeatherSnapshot,
+    derived: Derived?,
+    info: ForecastInfo,
+    status: Status,
+    size: DpSize,
+) {
+    val w = size.width.value
+    val showOm = config.forecastEnabled
+    val f = info.forecast
+
+    // ---- Budget de hauteur ----
+    var rem = size.height.value - 2f * PAD_V
+    if (showOm) rem -= OM_HEADER + DIVIDER
+    val heroSp = when {
+        rem >= 150f -> 48
+        rem >= 95f -> 40
+        else -> 32
+    }
+    rem -= 16f + heroSp * 1.25f
+
+    val columns = when {
+        w >= 300f -> 3
+        w >= 190f -> 2
+        else -> 1
+    }
+    val ecoChips = config.metrics.drop(1)
+    val omChips = if (showOm && f != null) config.forecastMetrics.filter { it != OmMetric.NEXT_HOURS }.drop(1) else emptyList()
+    val wantHours = showOm && f != null && f.hours.isNotEmpty() && OmMetric.NEXT_HOURS in config.forecastMetrics
+
+    val ecoRowsMax = ceil(ecoChips.size / columns.toDouble()).toInt()
+    val omRowsMax = ceil(omChips.size / columns.toDouble()).toInt()
+    var ecoRows = 0
+    var omRows = 0
+    var hours = false
+    // Priorité : 1re ligne station, ligne prévisions, bandeau horaire, puis le reste des mesures station.
+    if (ecoRowsMax > 0 && rem >= CHIP_ROW) { ecoRows = 1; rem -= CHIP_ROW }
+    if (omRowsMax > 0 && rem >= CHIP_ROW) { omRows = 1; rem -= CHIP_ROW }
+    if (wantHours && rem >= HOURS_ROW) { hours = true; rem -= HOURS_ROW }
+    while (ecoRows < ecoRowsMax && rem >= CHIP_ROW) { ecoRows++; rem -= CHIP_ROW }
+    while (omRows < omRowsMax && rem >= CHIP_ROW) { omRows++; rem -= CHIP_ROW }
 
     Column(modifier = GlanceModifier.fillMaxSize()) {
+        // ───── Haut : Open-Meteo ─────
+        if (showOm) {
+            OmHeader(p, accent, config, info)
+            if (omRows > 0) ChipGrid(columns, omChips.take(omRows * columns)) { m ->
+                if (f != null) {
+                    val v = m.read(f)
+                    InfoChip(p, accent, m.icon, joinValue(v), m.shortLabel, v.highlight, null)
+                }
+            }
+            if (hours && f != null) {
+                HoursStrip(p, accent, f.hours, min(f.hours.size, ((w - 2f * PAD_H) / 44f).toInt().coerceIn(1, 7)))
+            }
+            Spacer(modifier = GlanceModifier.defaultWeight())
+            Box(
+                modifier = GlanceModifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(ColorProvider(p.muted.copy(alpha = 0.25f))),
+            ) {}
+            Spacer(modifier = GlanceModifier.height(((DIVIDER - 1f) / 2f).dp))
+        }
+
+        // ───── Bas : station Ecowitt ─────
+        val hero = config.metrics.first()
+        val heroValue = hero.read(snap, derived)
+        val heroColor = heroColor(p, hero, heroValue, snap, derived)
+        val badge = if (hero == Metric.OUTDOOR_TEMP) frostBadge(snap.outdoorTemp) else null
+
         Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = hero.label.uppercase(),
                 style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp, fontWeight = FontWeight.Medium),
                 maxLines = 1,
-                modifier = GlanceModifier.defaultWeight(),
             )
+            if (badge != null && w >= 220f) {
+                Spacer(modifier = GlanceModifier.width(8.dp))
+                Text(
+                    text = badge,
+                    style = TextStyle(color = ColorProvider(p.accent), fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                    modifier = GlanceModifier
+                        .background(ImageProvider(R.drawable.badge_frost))
+                        .padding(horizontal = 7.dp, vertical = 1.dp),
+                )
+            }
+            Spacer(modifier = GlanceModifier.defaultWeight())
             if (status.text.isNotEmpty()) {
                 Text(
                     text = status.text,
@@ -196,18 +387,179 @@ private fun Full(p: WidgetTheme, config: WidgetConfig, snap: WeatherSnapshot, st
             }
         }
         Spacer(modifier = GlanceModifier.height(2.dp))
-        HeroValue(p, heroValue, heroSize)
 
-        if (shown.isNotEmpty()) {
+        val sparkBitmap = sparkline(hero, derived, accent, p, w, heroSp, heroValue)
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            HeroValue(p, heroValue, heroSp.sp, heroColor)
+            if (sparkBitmap != null) {
+                Spacer(modifier = GlanceModifier.width(10.dp))
+                Image(
+                    provider = ImageProvider(sparkBitmap.first),
+                    contentDescription = null,
+                    modifier = GlanceModifier.defaultWeight().height(sparkBitmap.second.dp),
+                    contentScale = ContentScale.FillBounds,
+                )
+            }
+        }
+
+        if (ecoRows > 0) {
             Spacer(modifier = GlanceModifier.defaultWeight())
-            shown.chunked(columns).forEach { rowItems ->
-                Row(modifier = GlanceModifier.fillMaxWidth().padding(top = 6.dp)) {
-                    rowItems.forEach { m ->
-                        Box(modifier = GlanceModifier.defaultWeight()) { Chip(p, m, snap) }
-                    }
-                    if (rowItems.size < columns) {
-                        Spacer(modifier = GlanceModifier.defaultWeight())
-                    }
+            ChipGrid(columns, ecoChips.take(ecoRows * columns)) { m ->
+                val v = m.read(snap, derived)
+                InfoChip(p, accent, m.icon, chipValue(m, v), m.label, v.highlight, v.trend)
+            }
+        }
+    }
+}
+
+/** Courbe 24 h : seulement quand la mesure principale est la température extérieure et que la place le permet. */
+@Composable
+private fun sparkline(
+    hero: Metric,
+    derived: Derived?,
+    accent: Color,
+    p: WidgetTheme,
+    widthDp: Float,
+    heroSp: Int,
+    heroValue: MetricValue,
+): Pair<android.graphics.Bitmap, Float>? {
+    if (hero != Metric.OUTDOOR_TEMP) return null
+    val series = derived?.tempSeries ?: return null
+    if (series.size < 3) return null
+    // Largeur estimée de la valeur principale (chiffres + unité + flèche).
+    val heroWidth = heroValue.value.length * 0.58f * heroSp + 46f
+    val sparkW = widthDp - 2f * PAD_H - heroWidth - 10f
+    if (sparkW < 70f) return null
+    val sparkH = min(heroSp * 1.2f, 56f)
+    val density = LocalContext.current.resources.displayMetrics.density
+    val bmp = Sparkline.render(
+        series = series,
+        widthPx = (sparkW * density).toInt(),
+        heightPx = (sparkH * density).toInt(),
+        density = density,
+        lineColor = accent.toArgb(),
+        gridColor = p.muted.copy(alpha = 0.55f).toArgb(),
+    ) ?: return null
+    return bmp to sparkH
+}
+
+private fun heroColor(p: WidgetTheme, m: Metric, v: MetricValue, s: WeatherSnapshot, d: Derived?): Color {
+    if (v.highlight) return p.rain
+    val t = tempOf(m, s, d) ?: return p.text
+    return TempColors.forTemp(t, p.isLight, p.text)
+}
+
+/** Dans une pastille, « Pluie en cours » reste court : l'intensité est visible ailleurs. */
+private fun chipValue(m: Metric, v: MetricValue): String =
+    if (m == Metric.RAIN_NOW) v.value else joinValue(v)
+
+// ───────────────────────────── Blocs ─────────────────────────────
+
+@Composable
+private fun OmHeader(p: WidgetTheme, accent: Color, config: WidgetConfig, info: ForecastInfo) {
+    val f = info.forecast
+    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (f != null) {
+            val day = f.isDay ?: true
+            Image(
+                provider = ImageProvider(WeatherCodes.icon(f.code, day)),
+                contentDescription = null,
+                modifier = GlanceModifier.size(24.dp),
+                colorFilter = ColorFilter.tint(ColorProvider(accent)),
+            )
+            Spacer(modifier = GlanceModifier.width(8.dp))
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                Text(
+                    text = WeatherCodes.label(f.code, day),
+                    style = TextStyle(color = ColorProvider(p.text), fontSize = 14.sp, fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                )
+                Text(
+                    // Attribution Open-Meteo (CC BY 4.0).
+                    text = "Open-Meteo" + (info.place?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
+                    style = TextStyle(color = ColorProvider(p.muted), fontSize = 9.sp),
+                    maxLines = 1,
+                )
+            }
+            val first = config.forecastMetrics.firstOrNull { it != OmMetric.NEXT_HOURS }
+            if (first != null) {
+                val v = first.read(f)
+                Spacer(modifier = GlanceModifier.width(8.dp))
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = joinValue(v),
+                        style = TextStyle(
+                            color = ColorProvider(if (v.highlight) p.rain else p.text),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = first.shortLabel.uppercase(),
+                        style = TextStyle(color = ColorProvider(p.muted), fontSize = 8.sp, fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                    )
+                }
+            }
+        } else {
+            Image(
+                provider = ImageProvider(R.drawable.ic_wx_cloud),
+                contentDescription = null,
+                modifier = GlanceModifier.size(22.dp),
+                colorFilter = ColorFilter.tint(ColorProvider(p.muted)),
+            )
+            Spacer(modifier = GlanceModifier.width(8.dp))
+            Text(
+                text = when {
+                    !info.hasLocation -> "Prévisions : choisis une position dans l'app"
+                    info.error != null -> "Prévisions indisponibles · ${info.error}"
+                    else -> "Prévisions en cours de chargement…"
+                },
+                style = TextStyle(color = ColorProvider(p.muted), fontSize = 11.sp),
+                maxLines = 2,
+                modifier = GlanceModifier.defaultWeight(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun <T> ChipGrid(columns: Int, items: List<T>, chip: @Composable (T) -> Unit) {
+    items.chunked(columns).forEach { rowItems ->
+        Row(modifier = GlanceModifier.fillMaxWidth().padding(top = 6.dp)) {
+            rowItems.forEach { item ->
+                Box(modifier = GlanceModifier.defaultWeight()) { chip(item) }
+            }
+            repeat(columns - rowItems.size) {
+                Spacer(modifier = GlanceModifier.defaultWeight())
+            }
+        }
+    }
+}
+
+@Composable
+private fun HoursStrip(p: WidgetTheme, accent: Color, hours: List<HourPoint>, count: Int) {
+    Row(modifier = GlanceModifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        hours.take(count).forEach { h ->
+            Box(modifier = GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = HOUR_FORMAT.format(Instant.ofEpochSecond(h.tSec).atZone(ZoneId.systemDefault())),
+                        style = TextStyle(color = ColorProvider(p.muted), fontSize = 9.sp, fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                    )
+                    Image(
+                        provider = ImageProvider(WeatherCodes.icon(h.code, h.isDay)),
+                        contentDescription = null,
+                        modifier = GlanceModifier.size(16.dp),
+                        colorFilter = ColorFilter.tint(ColorProvider(accent)),
+                    )
+                    Text(
+                        text = h.temp?.let { Metric.fmt(it, 0) + "°" } ?: "—",
+                        style = TextStyle(color = ColorProvider(p.text), fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                    )
                 }
             }
         }
@@ -215,18 +567,15 @@ private fun Full(p: WidgetTheme, config: WidgetConfig, snap: WeatherSnapshot, st
 }
 
 @Composable
-private fun HeroValue(p: WidgetTheme, v: MetricValue, base: TextUnit) {
+private fun HeroValue(p: WidgetTheme, v: MetricValue, base: TextUnit, color: Color) {
     // Les valeurs textuelles (« En cours ») sont réduites pour tenir sur une ligne.
     val size = if (v.value.length > 6) (base.value * 0.6f).sp else base
     val unitSize = (size.value * 0.4f).coerceAtLeast(11f).sp
+    val arrow = trendGlyph(v.trend)
     Row(verticalAlignment = Alignment.Bottom) {
         Text(
             text = v.value,
-            style = TextStyle(
-                color = ColorProvider(if (v.highlight) p.rain else p.text),
-                fontSize = size,
-                fontWeight = FontWeight.Bold,
-            ),
+            style = TextStyle(color = ColorProvider(color), fontSize = size, fontWeight = FontWeight.Bold),
             maxLines = 1,
         )
         if (v.unit.isNotEmpty()) {
@@ -237,41 +586,61 @@ private fun HeroValue(p: WidgetTheme, v: MetricValue, base: TextUnit) {
                 maxLines = 1,
             )
         }
-    }
-}
-
-@Composable
-private fun Chip(p: WidgetTheme, m: Metric, snap: WeatherSnapshot) {
-    val v = m.read(snap)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(
-            provider = ImageProvider(m.icon),
-            contentDescription = null,
-            modifier = GlanceModifier.size(15.dp),
-            colorFilter = ColorFilter.tint(ColorProvider(if (v.highlight) p.rain else p.accent)),
-        )
-        Spacer(modifier = GlanceModifier.width(6.dp))
-        Column {
+        if (arrow != null && v.trend != null) {
+            Spacer(modifier = GlanceModifier.width(4.dp))
             Text(
-                text = joinValue(v),
-                style = TextStyle(
-                    color = ColorProvider(if (v.highlight) p.rain else p.text),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                ),
-                maxLines = 1,
-            )
-            Text(
-                text = m.label.uppercase(),
-                style = TextStyle(color = ColorProvider(p.muted), fontSize = 8.sp, fontWeight = FontWeight.Medium),
+                text = arrow,
+                style = TextStyle(color = ColorProvider(trendColor(p, v.trend)), fontSize = unitSize),
                 maxLines = 1,
             )
         }
     }
 }
 
-private fun joinValue(v: MetricValue): String = when {
-    v.unit.isEmpty() -> v.value
-    v.unit.startsWith("°") || v.unit == "%" -> v.value + v.unit
-    else -> v.value + " " + v.unit
+@Composable
+private fun InfoChip(
+    p: WidgetTheme,
+    accent: Color,
+    icon: Int,
+    value: String,
+    label: String,
+    highlight: Boolean,
+    trend: Int?,
+) {
+    val arrow = trendGlyph(trend)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            provider = ImageProvider(icon),
+            contentDescription = null,
+            modifier = GlanceModifier.size(15.dp),
+            colorFilter = ColorFilter.tint(ColorProvider(if (highlight) p.rain else accent)),
+        )
+        Spacer(modifier = GlanceModifier.width(6.dp))
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = value,
+                    style = TextStyle(
+                        color = ColorProvider(if (highlight) p.rain else p.text),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    maxLines = 1,
+                )
+                if (arrow != null && trend != null) {
+                    Spacer(modifier = GlanceModifier.width(3.dp))
+                    Text(
+                        text = arrow,
+                        style = TextStyle(color = ColorProvider(trendColor(p, trend)), fontSize = 9.sp),
+                        maxLines = 1,
+                    )
+                }
+            }
+            Text(
+                text = label.uppercase(),
+                style = TextStyle(color = ColorProvider(p.muted), fontSize = 8.sp, fontWeight = FontWeight.Medium),
+                maxLines = 1,
+            )
+        }
+    }
 }

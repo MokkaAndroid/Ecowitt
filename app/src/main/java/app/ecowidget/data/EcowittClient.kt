@@ -7,6 +7,9 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.UnknownHostException
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLException
 
@@ -20,23 +23,81 @@ object EcowittClient {
 
     class ApiException(message: String) : Exception(message)
 
-    fun fetchData(c: Credentials): JSONObject {
-        val url = Uri.Builder()
+    private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+
+    /** Mesures en direct (toutes les sondes). */
+    fun fetchData(c: Credentials): JSONObject = get(
+        path = "api/v3/device/real_time",
+        creds = c,
+        withMac = true,
+        params = mapOf(
+            "call_back" to "all",
+            // Unités : °C, hPa, km/h, mm, W/m²
+            "temp_unitid" to "1",
+            "pressure_unitid" to "3",
+            "wind_speed_unitid" to "7",
+            "rainfall_unitid" to "12",
+            "solar_irradiance_unitid" to "16",
+        ),
+    )
+
+    /**
+     * Historique des ~30 dernières heures (température extérieure + pression relative).
+     * Résolution 30 min ; si l'API la refuse, on retombe sur la résolution automatique.
+     */
+    fun fetchHistory(c: Credentials, nowSec: Long): JSONObject {
+        val zone = ZoneId.systemDefault()
+        // Fenêtre large (-30 h / +2 h) : l'API peut interpréter les dates dans un autre fuseau,
+        // les timestamps de la réponse sont absolus et filtrés ensuite.
+        val start = DATE_FORMAT.format(Instant.ofEpochSecond(nowSec - 30 * 3600).atZone(zone))
+        val end = DATE_FORMAT.format(Instant.ofEpochSecond(nowSec + 2 * 3600).atZone(zone))
+        fun call(cycle: String) = get(
+            path = "api/v3/device/history",
+            creds = c,
+            withMac = true,
+            params = mapOf(
+                "start_date" to start,
+                "end_date" to end,
+                "cycle_type" to cycle,
+                "call_back" to "outdoor,pressure",
+                "temp_unitid" to "1",
+                "pressure_unitid" to "3",
+            ),
+        )
+        return try {
+            call("30min")
+        } catch (e: ApiException) {
+            call("auto")
+        }
+    }
+
+    /** Cherche la station dans le compte pour en tirer sa position (latitude / longitude). */
+    fun fetchStationLocation(c: Credentials): Location? {
+        val data = get(path = "api/v3/device/list", creds = c, withMac = false, params = emptyMap())
+        val list = data.optJSONArray("list") ?: return null
+        val wanted = Credentials.normalizeMac(c.mac)
+        for (i in 0 until list.length()) {
+            val d = list.optJSONObject(i) ?: continue
+            if (Credentials.normalizeMac(d.optString("mac")) != wanted) continue
+            val lat = d.optDouble("latitude", Double.NaN)
+            val lon = d.optDouble("longitude", Double.NaN)
+            if (lat.isNaN() || lon.isNaN() || (lat == 0.0 && lon == 0.0)) return null
+            val name = d.optString("name").ifBlank { "Ma station" }
+            return Location(lat, lon, name, elevation = null, source = "station")
+        }
+        return null
+    }
+
+    private fun get(path: String, creds: Credentials, withMac: Boolean, params: Map<String, String>): JSONObject {
+        val b = Uri.Builder()
             .scheme("https")
             .authority("api.ecowitt.net")
-            .appendEncodedPath("api/v3/device/real_time")
-            .appendQueryParameter("application_key", c.applicationKey.trim())
-            .appendQueryParameter("api_key", c.apiKey.trim())
-            .appendQueryParameter("mac", Credentials.normalizeMac(c.mac))
-            .appendQueryParameter("call_back", "all")
-            // Unités : °C, hPa, km/h, mm, W/m²
-            .appendQueryParameter("temp_unitid", "1")
-            .appendQueryParameter("pressure_unitid", "3")
-            .appendQueryParameter("wind_speed_unitid", "7")
-            .appendQueryParameter("rainfall_unitid", "12")
-            .appendQueryParameter("solar_irradiance_unitid", "16")
-            .build()
-            .toString()
+            .appendEncodedPath(path)
+            .appendQueryParameter("application_key", creds.applicationKey.trim())
+            .appendQueryParameter("api_key", creds.apiKey.trim())
+        if (withMac) b.appendQueryParameter("mac", Credentials.normalizeMac(creds.mac))
+        params.forEach { (k, v) -> b.appendQueryParameter(k, v) }
+        val url = b.build().toString()
 
         val conn = URL(url).openConnection() as HttpsURLConnection
         try {

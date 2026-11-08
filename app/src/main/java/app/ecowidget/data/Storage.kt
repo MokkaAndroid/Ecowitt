@@ -9,9 +9,12 @@ import app.ecowidget.widget.WidgetTheme
 /** Configuration d'un widget (une par instance posée sur l'écran d'accueil). */
 data class WidgetConfig(
     val theme: WidgetTheme = WidgetTheme.NIGHT,
-    /** Le premier élément est affiché en grand. */
+    /** Mesures de la station (bas du widget). La première est affichée en grand. */
     val metrics: List<Metric> = listOf(Metric.OUTDOOR_TEMP, Metric.RAIN_NOW, Metric.HUMIDITY),
     val showTime: Boolean = true,
+    /** Bloc Open-Meteo (haut du widget). */
+    val forecastEnabled: Boolean = true,
+    val forecastMetrics: List<OmMetric> = listOf(OmMetric.DAY_RANGE, OmMetric.NEXT_RAIN, OmMetric.PRECIP_PROB),
 )
 
 object Storage {
@@ -26,7 +29,7 @@ object Storage {
     private fun plain(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(PLAIN_FILE, Context.MODE_PRIVATE)
 
-    // ---- Identifiants : chiffrés (AES-256, clé protégée par l'Android Keystore) ----
+    // ---- Identifiants et position : chiffrés (AES-256, clé protégée par l'Android Keystore) ----
 
     private fun securePrefs(ctx: Context): SharedPreferences {
         secure?.let { return it }
@@ -74,6 +77,41 @@ object Storage {
             .apply()
     }
 
+    fun location(ctx: Context): Location? = try {
+        val p = securePrefs(ctx)
+        val lat = p.getString("loc_lat", null)?.toDoubleOrNull()
+        val lon = p.getString("loc_lon", null)?.toDoubleOrNull()
+        if (lat == null || lon == null) {
+            null
+        } else {
+            Location(
+                latitude = lat,
+                longitude = lon,
+                label = p.getString("loc_label", "").orEmpty(),
+                elevation = p.getString("loc_elev", null)?.toDoubleOrNull(),
+                source = p.getString("loc_source", "manuel").orEmpty(),
+            )
+        }
+    } catch (e: Exception) {
+        null
+    }
+
+    fun saveLocation(ctx: Context, loc: Location) {
+        // Coordonnées arrondies à 0,01° (~1 km) : suffisant pour un modèle météo, et on ne
+        // transmet pas la position exacte de la maison à un service tiers.
+        securePrefs(ctx).edit()
+            .putString("loc_lat", (Math.round(loc.latitude * 100.0) / 100.0).toString())
+            .putString("loc_lon", (Math.round(loc.longitude * 100.0) / 100.0).toString())
+            .putString("loc_label", loc.label)
+            .putString("loc_source", loc.source)
+            .apply {
+                if (loc.elevation == null) remove("loc_elev") else putString("loc_elev", loc.elevation.toString())
+            }
+            .apply()
+        // Nouvelle position : les prévisions en cache ne sont plus valables.
+        plain(ctx).edit().remove("forecast_raw").remove("forecast_at").apply()
+    }
+
     // ---- Réglages généraux ----
 
     fun intervalMinutes(ctx: Context): Int =
@@ -96,7 +134,16 @@ object Storage {
             ?.takeIf { it.isNotEmpty() }
             ?: default.metrics
         val showTime = p.getBoolean("w$appWidgetId.show_time", default.showTime)
-        return WidgetConfig(theme, metrics, showTime)
+        val omEnabled = p.getBoolean("w$appWidgetId.om_enabled", default.forecastEnabled)
+        val omMetrics = if (p.contains("w$appWidgetId.om_metrics")) {
+            p.getString("w$appWidgetId.om_metrics", "").orEmpty()
+                .split(',')
+                .mapNotNull { OmMetric.fromName(it) }
+                .distinct()
+        } else {
+            default.forecastMetrics
+        }
+        return WidgetConfig(theme, metrics, showTime, omEnabled, omMetrics)
     }
 
     fun saveWidgetConfig(ctx: Context, appWidgetId: Int, c: WidgetConfig) {
@@ -104,6 +151,8 @@ object Storage {
             .putString("w$appWidgetId.theme", c.theme.name)
             .putString("w$appWidgetId.metrics", c.metrics.joinToString(",") { it.name })
             .putBoolean("w$appWidgetId.show_time", c.showTime)
+            .putBoolean("w$appWidgetId.om_enabled", c.forecastEnabled)
+            .putString("w$appWidgetId.om_metrics", c.forecastMetrics.joinToString(",") { it.name })
             .apply()
     }
 
@@ -112,10 +161,12 @@ object Storage {
             .remove("w$appWidgetId.theme")
             .remove("w$appWidgetId.metrics")
             .remove("w$appWidgetId.show_time")
+            .remove("w$appWidgetId.om_enabled")
+            .remove("w$appWidgetId.om_metrics")
             .apply()
     }
 
-    // ---- Cache de la dernière réponse (données météo : non sensibles) ----
+    // ---- Caches des réponses (données météo : non sensibles) ----
 
     fun cachedRaw(ctx: Context): String? = plain(ctx).getString("cache_raw", null)
     fun cachedAt(ctx: Context): Long = plain(ctx).getLong("cache_at", 0L)
@@ -125,9 +176,31 @@ object Storage {
         plain(ctx).edit().putString("cache_raw", raw).putLong("cache_at", atMs).apply()
     }
 
-    fun saveError(ctx: Context, message: String?) {
+    fun saveError(ctx: Context, message: String?) = putOrRemove(ctx, "last_error", message)
+
+    fun historyRaw(ctx: Context): String? = plain(ctx).getString("history_raw", null)
+    fun historyAt(ctx: Context): Long = plain(ctx).getLong("history_at", 0L)
+    fun historyError(ctx: Context): String? = plain(ctx).getString("history_error", null)
+
+    fun saveHistory(ctx: Context, raw: String, atMs: Long) {
+        plain(ctx).edit().putString("history_raw", raw).putLong("history_at", atMs).apply()
+    }
+
+    fun saveHistoryError(ctx: Context, message: String?) = putOrRemove(ctx, "history_error", message)
+
+    fun forecastRaw(ctx: Context): String? = plain(ctx).getString("forecast_raw", null)
+    fun forecastAt(ctx: Context): Long = plain(ctx).getLong("forecast_at", 0L)
+    fun forecastError(ctx: Context): String? = plain(ctx).getString("forecast_error", null)
+
+    fun saveForecast(ctx: Context, raw: String, atMs: Long) {
+        plain(ctx).edit().putString("forecast_raw", raw).putLong("forecast_at", atMs).apply()
+    }
+
+    fun saveForecastError(ctx: Context, message: String?) = putOrRemove(ctx, "forecast_error", message)
+
+    private fun putOrRemove(ctx: Context, key: String, value: String?) {
         plain(ctx).edit().apply {
-            if (message == null) remove("last_error") else putString("last_error", message)
+            if (value == null) remove(key) else putString(key, value)
         }.apply()
     }
 }

@@ -21,8 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -40,16 +38,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.ecowidget.data.Metric
+import app.ecowidget.data.OmMetric
 import app.ecowidget.data.Storage
 import app.ecowidget.data.WidgetConfig
 import app.ecowidget.update.UpdateScheduler
 import app.ecowidget.widget.WidgetTheme
 
-/** Écran de personnalisation d'un widget : thème, mesures affichées, ordre. */
+/** Écran de personnalisation d'un widget : thème, mesures de la station, prévisions Open-Meteo. */
 class WidgetConfigActivity : ComponentActivity() {
 
     private var appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
@@ -106,9 +103,11 @@ private fun ConfigScreen(
     val ctx = LocalContext.current
     var theme by remember { mutableStateOf(initial.theme) }
     var showTime by remember { mutableStateOf(initial.showTime) }
+    var omEnabled by remember { mutableStateOf(initial.forecastEnabled) }
     val selected = remember { mutableStateListOf<Metric>().apply { addAll(initial.metrics) } }
-    val available = Metric.entries.filter { it !in selected }
+    val omSelected = remember { mutableStateListOf<OmMetric>().apply { addAll(initial.forecastMetrics) } }
     val hasCredentials = remember(tick) { Storage.credentials(ctx).isComplete }
+    val location = remember(tick) { Storage.location(ctx) }
 
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         Column(
@@ -166,88 +165,79 @@ private fun ConfigScreen(
                         }
                     }
                 }
+                Text(
+                    "Le fond bascule tout seul sur une teinte bleutée quand il pleut, " +
+                        "et la couleur de la température suit le thermomètre.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
-            Section("Affiché sur le widget") {
+            Section("Prévisions · Open-Meteo (haut)") {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "Afficher les prévisions",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(checked = omEnabled, onCheckedChange = { omEnabled = it })
+                }
+                if (omEnabled) {
+                    if (location == null) {
+                        Text(
+                            "Aucune position définie : choisis-la dans les réglages de l'application " +
+                                "(position de la station ou recherche d'une ville).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
+                            Text("Définir la position")
+                        }
+                    } else {
+                        Text(
+                            "Position : ${location.label.ifBlank { "%.2f, %.2f".format(location.latitude, location.longitude) }}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        "La condition du moment s'affiche toujours. La première information est placée à droite " +
+                            "de l'en-tête, les suivantes en pastilles selon la place disponible.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    ReorderPicker(
+                        selected = omSelected,
+                        all = OmMetric.entries,
+                        label = { it.label },
+                        icon = { it.icon },
+                        mainFirst = false,
+                        minSelected = 0,
+                    )
+                }
+            }
+
+            Section("Station · Ecowitt (bas)") {
                 Text(
                     "La première mesure est affichée en grand. Les suivantes apparaissent selon la place disponible : " +
                         "agrandis le widget pour en voir plus.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                selected.forEachIndexed { index, metric ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(
-                            painter = painterResource(metric.icon),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                            Text(metric.label, style = MaterialTheme.typography.bodyLarge)
-                            if (index == 0) {
-                                Text(
-                                    "PRINCIPALE",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                        IconButton(
-                            enabled = index > 0,
-                            onClick = {
-                                val m = selected.removeAt(index)
-                                selected.add(index - 1, m)
-                            },
-                        ) { Text("▲") }
-                        IconButton(
-                            enabled = index < selected.lastIndex,
-                            onClick = {
-                                val m = selected.removeAt(index)
-                                selected.add(index + 1, m)
-                            },
-                        ) { Text("▼") }
-                        IconButton(
-                            enabled = selected.size > 1,
-                            onClick = { selected.removeAt(index) },
-                        ) { Text("✕") }
-                    }
-                }
-
-                if (available.isNotEmpty()) {
-                    Text(
-                        "Ajouter",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    available.forEach { metric ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { selected.add(metric) }
-                                .padding(vertical = 10.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(metric.icon),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Text(
-                                metric.label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                            )
-                            Text("＋", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
+                ReorderPicker(
+                    selected = selected,
+                    all = Metric.entries,
+                    label = { it.label },
+                    icon = { it.icon },
+                    mainFirst = true,
+                    minSelected = 1,
+                )
+                Text(
+                    "La courbe des 24 h apparaît à côté de la température extérieure quand elle est en première position " +
+                        "et que le widget est assez large.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             Section("Options") {
@@ -263,7 +253,7 @@ private fun ConfigScreen(
 
             Button(
                 enabled = selected.isNotEmpty(),
-                onClick = { onSave(WidgetConfig(theme, selected.toList(), showTime)) },
+                onClick = { onSave(WidgetConfig(theme, selected.toList(), showTime, omEnabled, omSelected.toList())) },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Enregistrer") }
         }

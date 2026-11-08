@@ -1,7 +1,10 @@
 # Ecowidget
 
-Widget Android pour station météo **Ecowitt** (testé en conception pour la HP2564), alimenté par le cloud ecowitt.net.
-Mesures au choix (température extérieure, pluie en cours, humidité, vent, pression, UV…), 5 thèmes, actualisation jusqu'à toutes les 2 minutes.
+Widget Android pour station météo **Ecowitt** (conçu pour la HP2564), alimenté par le cloud ecowitt.net, avec les prévisions **Open-Meteo**.
+
+- **En bas** : les mesures de ta station (température, pluie en cours, humidité, vent, pression, UV… au choix), courbe des 24 h, min/max du jour, tendances ▲▼.
+- **En haut** : la météo du moment et les prévisions Open-Meteo (min/max prévus, prochaine pluie, risque de pluie, UV, lever/coucher, prochaines heures…).
+- Couleurs dynamiques (température, fond bleuté sous la pluie, badge de gel), 5 thèmes, actualisation jusqu'à toutes les 2 minutes.
 
 ## Obtenir l'APK (sans Android Studio)
 
@@ -18,13 +21,16 @@ Mesures au choix (température extérieure, pluie en cours, humidité, vent, pre
 1. Sur [ecowitt.net](https://www.ecowitt.net) → profil → **API Keys** : crée une *Application Key* et une *API Key*.
 2. Récupère l'**adresse MAC** de la console (WS View Plus → liste des appareils, ou ecowitt.net).
 3. Ouvre Ecowidget → saisis les trois valeurs → **Enregistrer et tester**.
-4. Bouton **Autoriser les alarmes exactes** (nécessaire pour tenir 2 min).
-5. **Ajouter à l'écran d'accueil**, choisis le thème et les mesures. Appui long sur le widget → *Reconfigurer* pour les changer.
+4. La position de la station est récupérée automatiquement pour Open-Meteo (sinon : *Position pour les prévisions* → recherche d'une ville). Renseigne aussi l'**altitude** de la station : elle corrige la température prévue en montagne.
+5. Bouton **Autoriser les alarmes exactes** (nécessaire pour tenir 2 min).
+6. **Ajouter à l'écran d'accueil**, choisis le thème, les mesures de la station et les informations Open-Meteo. Appui long sur le widget → *Reconfigurer* pour les changer.
+7. En cas de doute sur une donnée : section **Diagnostic** de l'app (état de chaque source) + bouton *Tout actualiser maintenant*.
 
 ## Actualisation
 
 - Intervalle réglable : 2 / 5 / 10 / 15 min. Un appui sur le widget force l'actualisation.
 - Android peut espacer les mises à jour quand le téléphone est immobile, écran éteint (mode Doze).
+- Mesures en direct : à chaque cycle · historique 24 h (courbe, min/max, tendances) : toutes les 15 min · prévisions Open-Meteo : toutes les 10 min.
 - Inutile de descendre sous l'intervalle d'envoi de la console vers ecowitt.net (réglable dans WS View Plus).
 
 ## Signature stable (optionnel)
@@ -39,6 +45,13 @@ Ne commite jamais le fichier `.jks`.
 - Clés chiffrées sur le téléphone (AES-256 via Android Keystore), exclues des sauvegardes.
 - HTTPS uniquement. L'API Ecowitt impose les clés dans l'URL : l'app ne les journalise jamais.
 - Permissions : Internet, alarmes exactes, démarrage (pour relancer l'actualisation).
+- Open-Meteo ne reçoit que des coordonnées arrondies à ~1 km (et l'altitude si tu la renseignes) : jamais tes clés Ecowitt.
+
+## Sources de données
+
+- Mesures : cloud Ecowitt (tes propres clés API).
+- Prévisions : [Open-Meteo.com](https://open-meteo.com/) — *Weather data by Open-Meteo.com*, licence [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
+  gratuit pour un usage non commercial (< 10 000 appels/jour ; l'app en fait environ 150 par jour et par téléphone).
 
 ## Développement
 
