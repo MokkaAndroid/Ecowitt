@@ -264,7 +264,9 @@ object OmCatalog {
                 when {
                     snap?.isRaining == true -> {
                         val end = f.rainEndMin
-                        val text = if (f.hasNowcast && end != null) "Il pleut, fin dans ~${OmFormat.delay(end)}" else "Il pleut"
+                        val rate = snap?.rainRate?.takeIf { it > 0.0 }
+                        val head = if (rate != null) "Il pleut · ${String.format(Locale.FRANCE, "%.1f", rate)} mm/h" else "Il pleut"
+                        val text = if (f.hasNowcast && end != null) "$head, fin dans ~${OmFormat.delay(end)}" else head
                         MetricValue(text, "", highlight = true)
                     }
                     !f.hasNowcast -> Metric.MISSING

@@ -314,9 +314,11 @@ private fun heroBlock(sp: Int, withWeather: Boolean): Float =
     maxOf(if (withWeather) HERO_MIN_WITH_WX else 0f, 12f + sp * 1.25f)
 
 /** Intensité (mm/h) de chacune des 12 barres de 5 min de l'heure à venir. */
-private fun rainBins(f: Forecast): List<Double> = List(12) { i ->
+private fun rainBins(f: Forecast, stationRate: Double? = null): List<Double> = List(12) { i ->
     val mid = i * 5 + 2.5
-    f.rainSteps.firstOrNull { mid >= it.startMin && mid < it.startMin + it.minutes }?.mmPerHour ?: 0.0
+    val model = f.rainSteps.firstOrNull { mid >= it.startMin && mid < it.startMin + it.minutes }?.mmPerHour ?: 0.0
+    // Les premières minutes suivent la mesure de la station quand elle détecte de la pluie.
+    if (i == 0 && stationRate != null && stationRate > 0.0) maxOf(model, stationRate) else model
 }
 
 /** Valeur « à zéro » : estompée pour ne pas encombrer (0 °C reste une vraie mesure). */
@@ -453,7 +455,7 @@ private fun Full(
         }
         Spacer(modifier = GlanceModifier.defaultWeight())
         if (rainMode == RainMode.CARD && rainValue != null && f != null) {
-            Column(modifier = GlanceModifier.fillMaxWidth()) { RainCard(p, f, rainValue, w, barsH) }
+            Column(modifier = GlanceModifier.fillMaxWidth()) { RainCard(p, f, rainValue, w, barsH, snap.rainRate.takeIf { snap.isRaining == true }) }
             Spacer(modifier = GlanceModifier.defaultWeight())
         }
         if (hours && f != null) {
@@ -636,7 +638,7 @@ private fun Sections(
             Column(modifier = GlanceModifier.fillMaxWidth()) {
                 if (header) SectionsHeader(p, shortPlace(info.place))
                 if (notice) ForecastNotice(p, info)
-                if (alert && rainValue != null && f != null) RainCard(p, f, rainValue, w, RAIN_BARS_H)
+                if (alert && rainValue != null && f != null) RainCard(p, f, rainValue, w, RAIN_BARS_H, snap.rainRate.takeIf { snap.isRaining == true })
             }
             Spacer(modifier = GlanceModifier.defaultWeight())
         }
@@ -1080,11 +1082,11 @@ private fun ForecastNotice(p: WidgetTheme, info: ForecastInfo) {
 
 /** Carte pluie : message + barres de 5 min sur l'heure à venir. */
 @Composable
-private fun RainCard(p: WidgetTheme, f: Forecast, v: MetricValue, widthDp: Float, barsH: Float) {
+private fun RainCard(p: WidgetTheme, f: Forecast, v: MetricValue, widthDp: Float, barsH: Float, stationRate: Double? = null) {
     val density = LocalContext.current.resources.displayMetrics.density
     val barsW = widthDp - 2f * PAD_H - 20f
     val bars = RainBars.render(
-        bins = rainBins(f),
+        bins = rainBins(f, stationRate),
         widthPx = (barsW * density).toInt(),
         heightPx = (barsH * density).toInt(),
         density = density,

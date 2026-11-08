@@ -102,6 +102,17 @@ private fun diagnostics(ctx: Context): List<Pair<String, Boolean>> {
         else -> "Mesures en direct : pas encore chargées" to false
     }
 
+    // Pluie vue par la station : montre quand une détection du capteur est écartée faute de corroboration.
+    WeatherRepository.cached(ctx).snapshot?.takeIf { it.rainDetected == true }?.let { s ->
+        val rate = (s.rainRate ?: 0.0).let { (Math.round(it * 10) / 10.0).toString().replace('.', ',') }
+        val hum = s.humidity?.toInt()?.toString() ?: "?"
+        out += if (s.isRaining == true) {
+            "Pluie station : confirmée · $rate mm/h · humidité $hum %" to true
+        } else {
+            "Pluie station : détection ignorée (débit $rate mm/h, humidité $hum %), probablement un faux positif" to false
+        }
+    }
+
     val histAt = Storage.historyAt(ctx)
     val histErr = Storage.historyError(ctx)
     val points = runCatching {

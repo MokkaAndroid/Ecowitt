@@ -9,12 +9,22 @@ import org.json.JSONObject
  */
 object SnapshotParser {
 
+    private const val CONFIRM_RATE_MM_H = 0.5
+    private const val CONFIRM_HUMIDITY = 65.0
+
     fun parse(data: JSONObject): WeatherSnapshot {
         val rainRate = data.num("rainfall", "rain_rate") ?: data.num("rainfall_piezo", "rain_rate")
         val piezoState = data.num("rainfall_piezo", "state")
-        val raining: Boolean? = when {
+        val humidity = data.num("outdoor", "humidity")
+        val detected: Boolean? = when {
             rainRate == null && piezoState == null -> null
             else -> (rainRate ?: 0.0) > 0.0 || piezoState == 1.0
+        }
+        // Le capteur piézo se déclenche parfois à tort (vent, poussières, insectes) : une détection n'est
+        // retenue que si le débit est net ou si l'air est assez humide pour qu'il pleuve vraiment.
+        val raining: Boolean? = when (detected) {
+            true -> (rainRate ?: 0.0) >= CONFIRM_RATE_MM_H || (humidity ?: 100.0) >= CONFIRM_HUMIDITY
+            else -> detected
         }
 
         return WeatherSnapshot(
@@ -28,6 +38,7 @@ object SnapshotParser {
             rainRate = rainRate,
             rainDaily = data.num("rainfall", "daily") ?: data.num("rainfall_piezo", "daily"),
             isRaining = raining,
+            rainDetected = detected,
             windSpeed = data.num("wind", "wind_speed"),
             windGust = data.num("wind", "wind_gust"),
             windDir = data.num("wind", "wind_direction"),

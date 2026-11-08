@@ -45,7 +45,10 @@ data class WeatherSnapshot(
     val indoorHumidity: Double?,
     val rainRate: Double?,
     val rainDaily: Double?,
+    /** Pluie retenue : détection du capteur, corroborée (débit net ou air humide). */
     val isRaining: Boolean?,
+    /** Détection brute du capteur, avant corroboration (peut être un faux positif). */
+    val rainDetected: Boolean? = null,
     val windSpeed: Double?,
     val windGust: Double?,
     val windDir: Double?,
