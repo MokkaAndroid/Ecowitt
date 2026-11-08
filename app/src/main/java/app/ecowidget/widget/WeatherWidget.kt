@@ -2,6 +2,9 @@ package app.ecowidget.widget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
@@ -58,6 +61,7 @@ import app.ecowidget.data.WeatherCodes
 import app.ecowidget.data.WeatherRepository
 import app.ecowidget.data.WeatherSnapshot
 import app.ecowidget.data.WidgetConfig
+import kotlinx.coroutines.flow.MutableStateFlow
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -75,6 +79,23 @@ class WeatherWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
+        provideContent {
+            // Les données sont relues DANS la composition : une session Glance encore ouverte (juste après un appui)
+            // ne rappelle pas provideGlance, elle se contente de recomposer quand ce compteur change.
+            val version by WidgetRefresh.version.collectAsState()
+            val loaded = remember(version) { load(context, appWidgetId) }
+            WidgetBody(loaded.config, loaded.state, loaded.derived, loaded.info)
+        }
+    }
+
+    private class Loaded(
+        val config: WidgetConfig,
+        val state: CachedState,
+        val derived: Derived?,
+        val info: ForecastInfo,
+    )
+
+    private fun load(context: Context, appWidgetId: Int): Loaded {
         val config = Storage.widgetConfig(context, appWidgetId)
         val state = WeatherRepository.cached(context)
         val derived = WeatherRepository.derived(context, state.snapshot)
@@ -84,7 +105,20 @@ class WeatherWidget : GlanceAppWidget() {
             place = Storage.location(context)?.label,
             hasLocation = Storage.location(context) != null,
         )
-        provideContent { WidgetBody(config, state, derived, info) }
+        return Loaded(config, state, derived, info)
+    }
+}
+
+/**
+ * Compteur de rafraîchissement du widget. Toute modification des données affichées passe par [WidgetRefresh.all] :
+ * il incrémente le compteur (recomposition d'une session ouverte) puis demande la mise à jour (nouvelle session).
+ */
+object WidgetRefresh {
+    val version = MutableStateFlow(0L)
+
+    suspend fun all(context: Context) {
+        version.value = version.value + 1
+        WeatherWidget().updateAll(context)
     }
 }
 
@@ -92,7 +126,7 @@ class WeatherWidget : GlanceAppWidget() {
 class RefreshCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         WeatherRepository.refresh(context, force = true)
-        WeatherWidget().updateAll(context)
+        WidgetRefresh.all(context)
     }
 }
 
@@ -100,7 +134,8 @@ class RefreshCallback : ActionCallback {
 class ToggleAltitudeCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         Storage.setAltitudeCorrected(context, !Storage.altitudeCorrected(context))
-        WeatherWidget().updateAll(context)
+        Storage.noteAltitudeToggle(context)
+        WidgetRefresh.all(context)
     }
 }
 
@@ -752,7 +787,12 @@ private fun ForecastCard(
                 }
             }
             if (range != null) {
-                Column(horizontalAlignment = Alignment.End) {
+                val alt = f.altitude?.takeIf { abs(it.offsetC) >= 0.1 }
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    // Toute la colonne des min/max est cliquable (cible large) quand une correction d'altitude existe.
+                    modifier = if (alt != null) GlanceModifier.clickable(actionRunCallback<ToggleAltitudeCallback>()) else GlanceModifier,
+                ) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = range.first,
@@ -765,25 +805,25 @@ private fun ForecastCard(
                             maxLines = 1,
                         )
                     }
-                    val alt = f.altitude?.takeIf { abs(it.offsetC) >= 0.1 }
                     if (alt != null) {
-                        // Flèche : corrigé de l'altitude (accent) <-> valeur du modèle (grisé).
+                        // Pastille : corrigé de l'altitude (accent) <-> valeur du modèle (grisé).
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = GlanceModifier
-                                .padding(vertical = 2.dp)
-                                .clickable(actionRunCallback<ToggleAltitudeCallback>()),
+                                .padding(top = 3.dp)
+                                .background(ColorProvider(if (alt.applied) accent.copy(alpha = 0.18f) else p.muted.copy(alpha = 0.18f)))
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
                         ) {
                             Text(
-                                text = if (alt.applied) "max / min · ${alt.userM.roundToInt()} m" else "max / min · modèle",
-                                style = TextStyle(color = ColorProvider(p.muted), fontSize = 10.sp),
+                                text = if (alt.applied) "${alt.userM.roundToInt()} m" else "modèle",
+                                style = TextStyle(color = ColorProvider(p.text), fontSize = 10.sp, fontWeight = FontWeight.Medium),
                                 maxLines = 1,
                             )
                             Spacer(modifier = GlanceModifier.width(4.dp))
                             Image(
                                 provider = ImageProvider(R.drawable.ic_swap),
                                 contentDescription = "Basculer entre la température corrigée de l'altitude et celle du modèle",
-                                modifier = GlanceModifier.size(12.dp),
+                                modifier = GlanceModifier.size(13.dp),
                                 colorFilter = ColorFilter.tint(ColorProvider(if (alt.applied) accent else p.muted)),
                             )
                         }
@@ -1052,31 +1092,36 @@ private fun WeatherColumn(p: WidgetTheme, accent: Color, f: Forecast, line: Pair
             colorFilter = ColorFilter.tint(ColorProvider(accent)),
         )
         val alt = f.altitude?.takeIf { abs(it.offsetC) >= 0.1 }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = if (alt != null) {
-                GlanceModifier.padding(vertical = 2.dp).clickable(actionRunCallback<ToggleAltitudeCallback>())
-            } else {
-                GlanceModifier
-            },
-        ) {
-            Text(
-                text = WeatherCodes.label(f.code, day),
-                style = TextStyle(
-                    color = ColorProvider(p.text),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.End,
-                ),
-                maxLines = 1,
-            )
-            if (alt != null) {
-                // Flèche : accent = température corrigée de l'altitude, grisé = valeur du modèle.
+        Text(
+            text = WeatherCodes.label(f.code, day),
+            style = TextStyle(
+                color = ColorProvider(p.text),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.End,
+            ),
+            maxLines = 1,
+        )
+        if (alt != null) {
+            // Pastille cliquable : accent = température corrigée de l'altitude, grisé = valeur du modèle.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = GlanceModifier
+                    .padding(top = 3.dp)
+                    .background(ColorProvider(if (alt.applied) accent.copy(alpha = 0.18f) else p.muted.copy(alpha = 0.18f)))
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .clickable(actionRunCallback<ToggleAltitudeCallback>()),
+            ) {
+                Text(
+                    text = if (alt.applied) "${alt.userM.roundToInt()} m" else "modèle",
+                    style = TextStyle(color = ColorProvider(p.text), fontSize = 10.sp, fontWeight = FontWeight.Medium),
+                    maxLines = 1,
+                )
                 Spacer(modifier = GlanceModifier.width(4.dp))
                 Image(
                     provider = ImageProvider(R.drawable.ic_swap),
                     contentDescription = "Basculer entre la température corrigée de l'altitude et celle du modèle",
-                    modifier = GlanceModifier.size(12.dp),
+                    modifier = GlanceModifier.size(13.dp),
                     colorFilter = ColorFilter.tint(ColorProvider(if (alt.applied) accent else p.muted)),
                 )
             }

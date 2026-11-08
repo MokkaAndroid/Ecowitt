@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -42,7 +44,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.glance.appwidget.updateAll
 import app.ecowidget.data.AddressClient
 import app.ecowidget.data.Credentials
 import app.ecowidget.data.EcowittClient
@@ -56,7 +57,7 @@ import app.ecowidget.data.SnapshotParser
 import app.ecowidget.data.Storage
 import app.ecowidget.data.WeatherRepository
 import app.ecowidget.update.UpdateScheduler
-import app.ecowidget.widget.WeatherWidget
+import app.ecowidget.widget.WidgetRefresh
 import app.ecowidget.widget.WeatherWidgetReceiver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -480,6 +481,42 @@ private fun SettingsScreen(tick: Int) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    var altCorrected by remember { mutableStateOf(Storage.altitudeCorrected(ctx)) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Températures prévues corrigées", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                if (altCorrected) "Corrigées de l'altitude (comme la flèche du widget)" else "Valeurs brutes du modèle (point de prévision)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = altCorrected,
+                            onCheckedChange = {
+                                altCorrected = it
+                                Storage.setAltitudeCorrected(ctx, it)
+                                scope.launch {
+                                    WidgetRefresh.all(ctx)
+                                    diagTick++
+                                }
+                            },
+                        )
+                    }
+                    val toggles = Storage.altitudeToggleCount(ctx)
+                    Text(
+                        if (toggles == 0) "Aucun appui reçu depuis la flèche du widget."
+                        else "Appuis reçus depuis la flèche du widget : $toggles (dernier à ${
+                            java.time.Instant.ofEpochMilli(Storage.altitudeToggleAt(ctx)).atZone(java.time.ZoneId.systemDefault())
+                                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+                        }).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     OutlinedButton(
                         onClick = {
                             location?.let { cur ->
@@ -644,7 +681,7 @@ private fun SettingsScreen(tick: Int) {
                         refreshing = true
                         scope.launch {
                             WeatherRepository.refresh(ctx, force = true)
-                            WeatherWidget().updateAll(ctx)
+                            WidgetRefresh.all(ctx)
                             diagTick++
                             refreshing = false
                         }

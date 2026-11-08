@@ -3,9 +3,8 @@ package app.ecowidget.update
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import androidx.glance.appwidget.updateAll
 import app.ecowidget.data.WeatherRepository
-import app.ecowidget.widget.WeatherWidget
+import app.ecowidget.widget.WidgetRefresh
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -23,7 +22,7 @@ class UpdateReceiver : BroadcastReceiver() {
                 UpdateScheduler.scheduleNext(app)
                 if (UpdateScheduler.hasWidgets(app)) {
                     WeatherRepository.refresh(app)
-                    WeatherWidget().updateAll(app)
+                    WidgetRefresh.all(app)
                 }
             } finally {
                 pending.finish()

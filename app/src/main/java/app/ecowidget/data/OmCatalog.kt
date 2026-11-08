@@ -140,7 +140,7 @@ data class Needs(
 // ───────────────────────────── Lecture générique d'une réponse ─────────────────────────────
 
 /** Accès aux valeurs d'une réponse Open-Meteo (timeformat=unixtime) à l'instant présent. */
-class RawData(private val json: JSONObject, nowSec: Long) {
+class RawData(private val json: JSONObject, val nowSec: Long) {
     private val hourIdx: Int = lastIndexAtOrBefore(json.optJSONObject("hourly")?.optJSONArray("time"), nowSec)
     private val dayIdx: Int = lastIndexAtOrBefore(json.optJSONObject("daily")?.optJSONArray("time"), nowSec).coerceAtLeast(0)
 
@@ -154,6 +154,14 @@ class RawData(private val json: JSONObject, nowSec: Long) {
 
     fun unit(section: OmSection, variable: String): String? =
         json.optJSONObject(section.key + "_units")?.optString(variable)?.takeIf { it.isNotBlank() }
+
+    /** Série horaire d'une variable : (instant en secondes, valeur). Vide si la variable n'a pas été demandée. */
+    fun hourlySeries(variable: String): List<Pair<Long, Double?>> {
+        val h = json.optJSONObject("hourly") ?: return emptyList()
+        val times = h.optJSONArray("time") ?: return emptyList()
+        val values = h.optJSONArray(variable) ?: return emptyList()
+        return List(times.length()) { i -> times.optLong(i) to values.dbl(i) }
+    }
 }
 
 private fun lastIndexAtOrBefore(times: JSONArray?, nowSec: Long): Int {
@@ -163,6 +171,64 @@ private fun lastIndexAtOrBefore(times: JSONArray?, nowSec: Long): Int {
         if (times.optLong(i) <= nowSec) idx = i else break
     }
     return idx
+}
+
+/** Pluie attendue d'ici minuit. `firstSec == null` : aucune pluie prévue. Limites en mètres d'altitude. */
+internal class RainToday(
+    val totalMm: Double,
+    val firstSec: Long?,
+    val lastSec: Long?,
+    val limitStartM: Double?,
+    val limitEndM: Double?,
+) {
+    val expected: Boolean get() = firstSec != null
+}
+
+/**
+ * Pluie du jour et limite pluie / neige. Open-Meteo ne fournit pas de limite pluie / neige horaire fiable sur les Alpes :
+ * on l'estime à partir de l'isotherme 0 °C (`freezing_level_height`), la neige tombant en moyenne 300 m plus bas.
+ */
+internal object RainOutlook {
+    private const val WET_MM = 0.1
+    private const val SNOW_BELOW_ISOTHERM_M = 300.0
+
+    /** null = pas de données horaires de précipitations. */
+    fun today(raw: RawData?, zone: ZoneId = ZoneId.systemDefault()): RainToday? {
+        raw ?: return null
+        val precip = raw.hourlySeries("precipitation")
+        if (precip.isEmpty()) return null
+        val now = raw.nowSec
+        val endOfDay = Instant.ofEpochSecond(now).atZone(zone).toLocalDate().plusDays(1).atStartOfDay(zone).toEpochSecond()
+        val freezing = raw.hourlySeries("freezing_level_height").toMap()
+        var total = 0.0
+        var first: Long? = null
+        var last: Long? = null
+        // La valeur horaire à l'instant T est le cumul de l'heure qui se termine à T.
+        for ((t, mm) in precip) {
+            if (t <= now || t > endOfDay) continue
+            val x = mm ?: continue
+            total += x
+            if (x >= WET_MM) {
+                if (first == null) first = t
+                last = t
+            }
+        }
+        fun limitAt(t: Long?): Double? = t?.let { freezing[it] }?.let { (it - SNOW_BELOW_ISOTHERM_M).coerceAtLeast(0.0) }
+        return RainToday(total, first, last, limitAt(first), limitAt(last))
+    }
+
+    fun mm(x: Double): String = String.format(Locale.FRANCE, if (x < 10) "%.1f" else "%.0f", x)
+
+    private fun hundreds(x: Double): Int = (x / 100.0).roundToInt() * 100
+
+    /** « 1400 » quand la limite ne bouge pas, « 1500→1100 » quand elle évolue pendant l'épisode. */
+    fun limitText(r: RainToday): MetricValue? {
+        val a = r.limitStartM ?: return null
+        val b = r.limitEndM ?: a
+        val ha = hundreds(a)
+        val hb = hundreds(b)
+        return if (ha == hb) MetricValue("$ha", "m") else MetricValue("$ha→$hb", "")
+    }
 }
 
 internal object OmFormat {
@@ -212,6 +278,8 @@ object OmCatalog {
     const val NEXT_HOURS = "NEXT_HOURS"
     const val RAIN_MESSAGE = "RAIN_MESSAGE"
     const val POLLEN_MAX = "POLLEN_MAX"
+    const val RAIN_TODAY = "RAIN_TODAY"
+    const val SNOW_LIMIT = "SNOW_LIMIT"
 
     /** Espèces de pollens de l'API air-quality : « Pollens » affiche la plus élevée. */
     val POLLEN_VARIABLES = listOf(
@@ -284,6 +352,30 @@ object OmCatalog {
                     delay == null -> MetricValue("Aucune", "≤ " + OmFormat.horizon(f.nowcastHorizonMin))
                     delay <= 5 -> MetricValue("En cours", "", highlight = true)
                     else -> MetricValue("dans ${OmFormat.delay(delay)}", "", highlight = delay < 60)
+                }
+            },
+        )
+        add(
+            special(RAIN_TODAY, "Pluie attendue aujourd'hui (cumul jusqu'à minuit)", "Pluie aujourd'hui", R.drawable.ic_cloud_rain) { f, _ ->
+                val r = RainOutlook.today(f.raw)
+                when {
+                    r == null -> Metric.MISSING
+                    !r.expected -> MetricValue("Aucune", "")
+                    else -> MetricValue(RainOutlook.mm(r.totalMm) + " mm", "", highlight = true)
+                }
+            },
+        )
+        add(
+            special(SNOW_LIMIT, "Limite pluie / neige du jour (estimée, si des précipitations sont attendues)", "Limite neige", R.drawable.ic_wx_snow) { f, _ ->
+                val r = RainOutlook.today(f.raw)
+                val text = if (r != null && r.expected) RainOutlook.limitText(r) else null
+                if (text == null) {
+                    Metric.MISSING
+                } else {
+                    // Mise en avant quand la neige descend jusqu'à l'altitude de l'utilisateur.
+                    val low = minOfNotNull(r?.limitStartM, r?.limitEndM)
+                    val mine = f.altitude?.userM
+                    text.copy(highlight = low != null && mine != null && low <= mine)
                 }
             },
         )
@@ -431,6 +523,12 @@ object OmCatalog {
         )
     }
 
+    private fun minOfNotNull(a: Double?, b: Double?): Double? = when {
+        a == null -> b
+        b == null -> a
+        else -> minOf(a, b)
+    }
+
     private val index: Map<String, OmItem> = items.associateBy { it.id }
 
     val byCategory: Map<OmCategory, List<OmItem>> = OmCategory.entries.associateWith { c -> items.filter { it.category == c } }
@@ -480,6 +578,10 @@ object OmCatalog {
             val item = byId(id) ?: continue
             if (id == POLLEN_MAX) {
                 air.addAll(POLLEN_VARIABLES)
+                continue
+            }
+            if (id == RAIN_TODAY || id == SNOW_LIMIT) {
+                h.addAll(listOf("precipitation", "freezing_level_height"))
                 continue
             }
             if (item.computed != null) continue

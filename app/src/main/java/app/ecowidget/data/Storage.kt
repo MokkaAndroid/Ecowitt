@@ -22,6 +22,7 @@ data class WidgetConfig(
     /** Identifiants du catalogue Open-Meteo (voir [OmCatalog]). */
     val forecastMetrics: List<String> = listOf(
         "DAY_RANGE", "current.apparent_temperature", OmCatalog.NEXT_HOURS, OmCatalog.RAIN_MESSAGE, "NEXT_RAIN",
+        OmCatalog.RAIN_TODAY, OmCatalog.SNOW_LIMIT,
         "current.wind_speed_10m", "current.precipitation", "air.european_aqi", OmCatalog.POLLEN_MAX, "FREEZING_LEVEL",
     ),
 )
@@ -170,17 +171,30 @@ object Storage {
 
     // ---- Configuration par widget ----
 
-    /** Version de la configuration : la v2 (affichage en cartes) préremplit les infos de la maquette. */
-    private const val CONFIG_VERSION = 2
+    /**
+     * Version de la configuration : la v2 (affichage en cartes) préremplit les infos de la maquette ;
+     * la v3 ajoute « Pluie aujourd'hui » et « Limite neige » aux widgets déjà posés.
+     */
+    private const val CONFIG_VERSION = 3
 
     fun widgetConfig(ctx: Context, appWidgetId: Int): WidgetConfig {
         val p = plain(ctx)
         val stored = readWidgetConfig(p, appWidgetId)
-        // Un widget déjà posé avant la v2 reçoit, une seule fois, les infos de la maquette ; thème et heure sont conservés.
-        if (p.contains("w$appWidgetId.theme") && p.getInt("w$appWidgetId.cfg_v", 1) < CONFIG_VERSION) {
-            val migrated = WidgetConfig(theme = stored.theme, showTime = stored.showTime)
-            saveWidgetConfig(ctx, appWidgetId, migrated)
-            return migrated
+        if (p.contains("w$appWidgetId.theme")) {
+            val v = p.getInt("w$appWidgetId.cfg_v", 1)
+            if (v < CONFIG_VERSION) {
+                // Avant la v2 : on reprend les infos de la maquette (thème et heure conservés).
+                // v2 -> v3 : les deux nouvelles infos sont ajoutées une seule fois, après « Prochaine pluie ».
+                val migrated = if (v < 2) {
+                    WidgetConfig(theme = stored.theme, showTime = stored.showTime)
+                } else {
+                    val add = listOf(OmCatalog.RAIN_TODAY, OmCatalog.SNOW_LIMIT).filter { it !in stored.forecastMetrics }
+                    val at = stored.forecastMetrics.indexOf("NEXT_RAIN").let { if (it >= 0) it + 1 else stored.forecastMetrics.size }
+                    stored.copy(forecastMetrics = stored.forecastMetrics.take(at) + add + stored.forecastMetrics.drop(at))
+                }
+                saveWidgetConfig(ctx, appWidgetId, migrated)
+                return migrated
+            }
         }
         return stored
     }
@@ -266,6 +280,18 @@ object Storage {
     fun setAltitudeCorrected(ctx: Context, corrected: Boolean) {
         plain(ctx).edit().putBoolean("alt_corrected", corrected).apply()
     }
+
+    /** Trace des appuis sur la flèche du widget (diagnostic : montre que l'appui est bien arrivé jusqu'à l'app). */
+    fun noteAltitudeToggle(ctx: Context) {
+        val p = plain(ctx)
+        p.edit()
+            .putInt("alt_toggle_count", p.getInt("alt_toggle_count", 0) + 1)
+            .putLong("alt_toggle_at", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun altitudeToggleCount(ctx: Context): Int = plain(ctx).getInt("alt_toggle_count", 0)
+    fun altitudeToggleAt(ctx: Context): Long = plain(ctx).getLong("alt_toggle_at", 0L)
 
     fun forecastRaw(ctx: Context): String? = plain(ctx).getString("forecast_raw", null)
     fun forecastAt(ctx: Context): Long = plain(ctx).getLong("forecast_at", 0L)
