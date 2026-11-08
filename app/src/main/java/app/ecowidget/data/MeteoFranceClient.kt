@@ -45,13 +45,17 @@ object MeteoFranceClient {
     private const val MAX_CAPS_BYTES = 12 * 1024 * 1024
     private val APP_ID_FORMAT = Regex("^[A-Za-z0-9+/=_-]{20,512}$")
     private val JWT_FORMAT = Regex("^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
+    // Commande curl copiée depuis le portail : on en extrait la chaîne qui suit « Basic ».
+    private val BASIC_IN_TEXT = Regex("Basic\\s+([A-Za-z0-9+/=_-]{20,})")
     private val COVERAGE_ID = Regex("<(?:\\w+:)?CoverageId>([^<]+)</(?:\\w+:)?CoverageId>")
     private val RUN_SUFFIX = Regex("^(.+)___(\\d{4}-\\d{2}-\\d{2}T\\d{2}\\.\\d{2}\\.\\d{2}Z)$")
 
-    /** Accepte aussi « Basic xxx » / « Bearer xxx » ou un texte entouré de guillemets, copiés depuis le portail. */
-    fun normalizeAppId(raw: String): String =
-        raw.trim().trim('"', '\'').removePrefix("Basic ").removePrefix("basic ")
-            .removePrefix("Bearer ").removePrefix("bearer ").trim()
+    /** Accepte aussi la commande curl complète, « Basic xxx » / « Bearer xxx » ou un texte entouré de guillemets. */
+    fun normalizeAppId(raw: String): String {
+        val t = raw.trim()
+        BASIC_IN_TEXT.find(t)?.let { return it.groupValues[1] }
+        return t.trim('"', '\'').removePrefix("Bearer ").removePrefix("bearer ").trim()
+    }
 
     fun isValidAppId(raw: String): Boolean = APP_ID_FORMAT.matches(normalizeAppId(raw))
 

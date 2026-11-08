@@ -421,8 +421,8 @@ private fun SettingsScreen(tick: Int) {
 
             Section("Météo-France · pluie imminente (test)") {
                 Text(
-                    "Sur portail-api.meteofrance.fr → « Générer token » (type OAuth2). Pour un test rapide, colle le jeton généré (valable 1 h). " +
-                        "Pour un usage durable, colle l'Application ID : la longue chaîne qui suit « Basic » dans la commande curl. Garde-les secrets.",
+                    "Sur portail-api.meteofrance.fr → « Générer token » (type OAuth2) : touche l'icône de copie du bloc « Curl » puis colle-le ici, " +
+                        "l'app en extrait l'Application ID (usage durable). Pour un test rapide, tu peux coller le jeton (valable 1 h). Garde-les secrets.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
