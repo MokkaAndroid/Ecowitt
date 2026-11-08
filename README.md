@@ -10,8 +10,8 @@ Widget Android pour station météo **Ecowitt** (conçu pour la HP2564), aliment
 
 1. Crée un dépôt GitHub **privé** et envoie-y le contenu de ce dossier (branche `main`).
 2. Onglet **Actions** → workflow **Build APK** → il se lance au push (ou **Run workflow**).
-3. Quand il est vert (3-5 min), ouvre l'exécution → **Artifacts** → télécharge `ecowidget-apk` → décompresse.
-4. Copie `app-debug.apk` sur le téléphone et installe-le (autorise « Installer des applications inconnues » pour ton navigateur ou gestionnaire de fichiers).
+3. Quand il est vert (3-5 min), ouvre **Releases** → **Dernière version** → télécharge `Ecowidget.apk` (lien direct, sans zip : `https://github.com/MokkaAndroid/Ecowitt/releases/download/latest/Ecowidget.apk`). L'artefact `ecowidget-apk` (zip) reste disponible dans l'exécution du workflow.
+4. Ouvre l'APK sur le téléphone et installe-le (autorise « Installer des applications inconnues » pour ton navigateur ou gestionnaire de fichiers).
 
 > Chaque build CI utilise une clé de debug différente : pour installer une mise à jour **par-dessus** la version
 > précédente, ajoute ta propre clé de signature (voir plus bas), sinon désinstalle d'abord l'ancienne version.

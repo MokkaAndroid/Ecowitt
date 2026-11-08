@@ -127,6 +127,8 @@ Retour du 08/11 : le rendu B était « très loin » des maquettes ; Mickaël de
 ## Phase 8 — Livraison
 - ✅ Workflow GitHub Actions → APK téléchargeable
 - ✅ Signature stable optionnelle via secrets GitHub (mises à jour sans désinstaller)
+- ✅ APK publié en release « latest » à chaque build (téléchargement direct, sans zip) — v0.5.1
+- 🔲 À tester : clé stable active (secrets en place), installer v0.5.1 puis la suivante par-dessus sans désinstaller
 - ✅ README (installation pas à pas)
 - ⏳ Image d'aperçu dans le sélecteur de widgets
 
