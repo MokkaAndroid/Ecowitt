@@ -2,7 +2,7 @@
 
 Besoin : savoir, quand des précipitations sont attendues, à quelle altitude la pluie devient neige, et comment cette limite évolue dans la journée, pour ton secteur (Savoie, ~685 m).
 
-## Ce que fait l'app aujourd'hui (v0.5.4)
+## Ce que faisait l'app en v0.5.4 (remplacé en v0.5.6 par `snowfall_height`)
 
 Estimation = isotherme 0 °C d'Open-Meteo (`freezing_level_height`) − 300 m, arrondie à 100 m.
 C'est une règle de pouce. Les bulletins Météo-France montrent des écarts bien plus variables entre l'isotherme 0 °C et la limite pluie-neige (de ~200 m à ~1 000 m selon l'air plus ou moins sec et l'intensité des précipitations).
@@ -23,6 +23,19 @@ Fiabilité : moyenne, à prendre comme un ordre de grandeur.
 - **Windy API** : clé, quotas, pas de variable de limite pluie-neige directe.
 - **MétéoSuisse open data brut** et **paquets AROME/ARPEGE Météo-France** (GRIB) : fichiers volumineux, décodage GRIB impraticable sur un téléphone. Open-Meteo les encapsule déjà (B et C).
 - **GeoSphere Autriche** : hors zone.
+
+## Résultat du test sur le téléphone (8 nov. 2026, 17 h 11, Villarlurin, 24 h à venir)
+
+| Modèle | Limite neige (`snowfall_height`) | Isotherme 0 °C |
+|--------|-------------------|----------------|
+| ICON-D2 (2 km) | 1780–2530 m | 2350–2890 m |
+| ICON-EU (7 km) | 1660–2510 m | 2310–2880 m |
+| ICON-CH1 (1 km) | 1760–2590 m | 2350–2890 m |
+| ICON-CH2 (2 km) | 1590–2610 m | 2350–2910 m |
+| Automatique Open-Meteo | 1780–2537 m | 2350–2890 m |
+
+Conclusions : les cinq modèles couvrent la Savoie et s'accordent à 100–200 m près. Le mode automatique reprend ICON-D2.
+La limite neige est 360 à 570 m sous l'isotherme 0 °C ici : l'ancienne estimation (iso 0 °C − 300 m) était trop haute de ~270 m. v0.5.6 utilise donc `snowfall_height` (repli sur l'estimation si la valeur manque).
 
 ## Recommandation
 

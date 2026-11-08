@@ -135,7 +135,10 @@ Retour du 08/11 : le rendu B était « très loin » des maquettes ; Mickaël de
 - ✅ v0.5.5 : la courbe de température est remplacée par le min / max du jour de la station (carte station et format large)
 - ✅ v0.5.5 : analyse des sources de limite pluie / neige (`docs/limite-pluie-neige.md`) + bouton de test « Tester la limite pluie / neige (modèles) » dans Réglages → Diagnostic
 - 🔲 À tester v0.5.5 : min / max affichés (valeurs cohérentes avec l'app Ecowitt), bouton de test limite pluie / neige : relever les lignes affichées
-- ⏳ Limite pluie / neige : choisir la source (Open-Meteo `snowfall_height` selon le test, Météo-France BRA en saison, station en temps réel)
+- ✅ Test des modèles sur le téléphone : ICON-D2 / EU / CH1 / CH2 couvrent la Savoie et s'accordent à 100–200 m près (voir `docs/limite-pluie-neige.md`)
+- ✅ v0.5.6 : « Limite neige » utilise `snowfall_height` (Open-Meteo, modèle automatique), repli isotherme 0 °C − 300 m
+- 🔲 À tester v0.5.6 : un jour de pluie, comparer « Limite neige » avec ce qui tombe réellement (voir le bulletin Météo-France du massif)
+- ⏳ Option : limite officielle Météo-France (BRA, saison nov.–mai) à côté de la valeur modèle ; « chez toi : pluie / neige » depuis la station
 - 🔲 À tester v0.5.4 : altitude 685 m saisie, appui sur la pastille ⇄ (valeurs et libellé « 685 m » / « modèle » changent, compteur d'appuis dans les réglages), tuiles « Pluie aujourd'hui » et « Limite neige » un jour de pluie / de neige
 - 🔲 À tester : clé stable active (secrets en place), installer v0.5.1 puis la suivante par-dessus sans désinstaller
 - ✅ README (installation pas à pas)

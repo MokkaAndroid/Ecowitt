@@ -186,7 +186,8 @@ internal class RainToday(
 
 /**
  * Pluie du jour et limite pluie / neige. Open-Meteo ne fournit pas de limite pluie / neige horaire fiable sur les Alpes :
- * on l'estime à partir de l'isotherme 0 °C (`freezing_level_height`), la neige tombant en moyenne 300 m plus bas.
+ * on utilise `snowfall_height` (altitude où la température du thermomètre mouillé dépasse 1,3 °C ; modèles DWD / MétéoSuisse,
+ * qui couvrent la Savoie). À défaut, repli sur l'isotherme 0 °C (`freezing_level_height`) moins 300 m.
  */
 internal object RainOutlook {
     private const val WET_MM = 0.1
@@ -199,6 +200,7 @@ internal object RainOutlook {
         if (precip.isEmpty()) return null
         val now = raw.nowSec
         val endOfDay = Instant.ofEpochSecond(now).atZone(zone).toLocalDate().plusDays(1).atStartOfDay(zone).toEpochSecond()
+        val snowHeight = raw.hourlySeries("snowfall_height").toMap()
         val freezing = raw.hourlySeries("freezing_level_height").toMap()
         var total = 0.0
         var first: Long? = null
@@ -213,7 +215,11 @@ internal object RainOutlook {
                 last = t
             }
         }
-        fun limitAt(t: Long?): Double? = t?.let { freezing[it] }?.let { (it - SNOW_BELOW_ISOTHERM_M).coerceAtLeast(0.0) }
+        fun limitAt(t: Long?): Double? {
+            if (t == null) return null
+            snowHeight[t]?.let { return it.coerceAtLeast(0.0) }
+            return freezing[t]?.let { (it - SNOW_BELOW_ISOTHERM_M).coerceAtLeast(0.0) }
+        }
         return RainToday(total, first, last, limitAt(first), limitAt(last))
     }
 
@@ -366,7 +372,7 @@ object OmCatalog {
             },
         )
         add(
-            special(SNOW_LIMIT, "Limite pluie / neige du jour (estimée, si des précipitations sont attendues)", "Limite neige", R.drawable.ic_wx_snow) { f, _ ->
+            special(SNOW_LIMIT, "Limite pluie / neige du jour (modèles DWD / MétéoSuisse, si des précipitations sont attendues)", "Limite neige", R.drawable.ic_wx_snow) { f, _ ->
                 val r = RainOutlook.today(f.raw)
                 val text = if (r != null && r.expected) RainOutlook.limitText(r) else null
                 if (text == null) {
@@ -581,7 +587,7 @@ object OmCatalog {
                 continue
             }
             if (id == RAIN_TODAY || id == SNOW_LIMIT) {
-                h.addAll(listOf("precipitation", "freezing_level_height"))
+                h.addAll(listOf("precipitation", "snowfall_height", "freezing_level_height"))
                 continue
             }
             if (item.computed != null) continue
