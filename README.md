@@ -30,7 +30,7 @@ Widget Android pour station météo **Ecowitt** (conçu pour la HP2564), aliment
 ## Modes du widget
 Dans l'application, **Mode du widget** choisit la présentation (réglage commun à tous les widgets) :
 - **Complet** : le grand widget (mesures, prévisions, pluie, heures), un appui actualise ;
-- **Tuiles + page** : en-tête (lieu, heure, pastille pluie / neige attendue) et tuiles des maquettes : Extérieur, Prévision, Pluie, Vent, Humidité, Pression, Limite neige (7 en 4×3) puis Demain, Coucher, Air, Intérieur (11 en 4×4) ; en 4×2, une seule rangée de petites tuiles ; un appui ouvre une fiche détaillée en plein écran ;
+- **Tuiles + page** : en-tête (lieu, heure, pastille pluie / neige attendue) et tuiles des maquettes : Extérieur, Prévision, Pluie, Vent, Humidité, Pression, Limite neige (7 en 4×3) puis Demain, Coucher, Air, Intérieur (11 en 4×4) ; en 4×2, une seule rangée de petites tuiles ; un appui ouvre une fiche détaillée en plein écran, dessinée comme les maquettes (9 fiches : Température, Pluie et neige, Limite neige, Vent, Humidité, Pression, Prévisions, Soleil et UV, Air et pollens) ;
 - **Tuiles + détail** : mêmes tuiles ; un appui affiche le détail directement dans le widget (onglets, retour, ⤢ pour la fiche plein écran), retour automatique aux tuiles après 30 s. Demande un widget d'au moins 4×3 cases ; en dessous, un appui ouvre la fiche plein écran.
 
 ## Actualisation

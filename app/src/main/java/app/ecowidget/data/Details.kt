@@ -10,15 +10,14 @@ enum class Tone { NORMAL, DIM, ACCENT, RAIN, SNOW, ICE, WARM, COLD, WARN, WIND, 
 /** Les sujets du widget compact. L'ordre est celui de l'affichage des tuiles. */
 enum class Tile(val id: String, val label: String, val short: String, @DrawableRes val icon: Int) {
     TEMP("temp", "Température", "Temp.", R.drawable.ic_thermometer),
-    RAIN("rain", "Pluie", "Pluie", R.drawable.ic_cloud_rain),
+    RAIN("rain", "Pluie et neige", "Pluie", R.drawable.ic_cloud_rain),
     SNOW("snow", "Limite neige", "Neige", R.drawable.ic_wx_snow),
     WIND("wind", "Vent", "Vent", R.drawable.ic_wind),
     HUM("hum", "Humidité", "Humidité", R.drawable.ic_droplet),
     PRESS("press", "Pression", "Pression", R.drawable.ic_gauge),
     FORECAST("fc", "Prévisions", "Prévis.", R.drawable.ic_wx_partly),
-    SUN("sun", "Soleil", "Soleil", R.drawable.ic_sunset),
-    AIR("air", "Air", "Air", R.drawable.ic_leaf),
-    INDOOR("indoor", "Intérieur", "Intérieur", R.drawable.ic_home);
+    SUN("sun", "Soleil et UV", "Soleil", R.drawable.ic_sunset),
+    AIR("air", "Air et pollens", "Air", R.drawable.ic_leaf);
 
     companion object {
         fun fromId(id: String?): Tile? = entries.firstOrNull { it.id == id }
@@ -131,11 +130,13 @@ object DetailData {
         hourly = setOf(
             "apparent_temperature", "precipitation", "snowfall", "snowfall_height", "freezing_level_height",
             "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m", "relative_humidity_2m", "dew_point_2m",
-            "pressure_msl", "precipitation_probability", "uv_index",
+            "pressure_msl", "precipitation_probability", "uv_index", "shortwave_radiation",
         ),
-        daily = setOf("precipitation_sum", "snowfall_sum", "precipitation_probability_max", "uv_index_max"),
-        // Indice de qualité de l'air et pollens, pour la tuile « Air ».
-        air = OmCatalog.needs(listOf("air.european_aqi", OmCatalog.POLLEN_MAX)).air,
+        daily = setOf(
+            "precipitation_sum", "snowfall_sum", "precipitation_probability_max", "uv_index_max", "weather_code", "sunshine_duration",
+        ),
+        // Indice de qualité de l'air, polluants et pollens, pour la fiche « Air ».
+        air = OmCatalog.needs(listOf("air.european_aqi", OmCatalog.POLLEN_MAX)).air + setOf("pm2_5", "pm10", "ozone", "nitrogen_dioxide"),
         days = 8,
     )
 }

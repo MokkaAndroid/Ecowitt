@@ -23,9 +23,9 @@ object DetailBuilder {
     // ───────────────────────────── Tuiles (maquette « H ») ─────────────────────────────
 
     /** Première pluie des 24 h à venir, et premier moment où elle tombe en neige. */
-    private class Episode(val first: Long?, val firstSnow: Long?, val firstIsSnow: Boolean)
+    internal class Episode(val first: Long?, val firstSnow: Long?, val firstIsSnow: Boolean)
 
-    private fun episode(i: DetailInputs): Episode? {
+    internal fun episode(i: DetailInputs): Episode? {
         val prec = hourly(i, "precipitation", i.nowSec + 1, i.nowSec + 24 * H)
         if (prec.isEmpty()) return null
         val temps = hourlyMap(i, "temperature_2m")
@@ -47,12 +47,12 @@ object DetailBuilder {
     }
 
     /** « 17 h », « 17 h 45 ». */
-    private fun hm(sec: Long, zone: ZoneId): String {
+    internal fun hm(sec: Long, zone: ZoneId): String {
         val z = Instant.ofEpochSecond(sec).atZone(zone)
         return if (z.minute == 0) "${z.hour} h" else "${z.hour} h " + String.format(Locale.ROOT, "%02d", z.minute)
     }
 
-    private fun sameDay(a: Long, b: Long, zone: ZoneId): Boolean =
+    internal fun sameDay(a: Long, b: Long, zone: ZoneId): Boolean =
         Instant.ofEpochSecond(a).atZone(zone).toLocalDate() == Instant.ofEpochSecond(b).atZone(zone).toLocalDate()
 
     /** Pastille de l'en-tête : « Pluie 17 h 45 · neige 5 h », « Sec jusqu'à demain », « Il pleut ». Null sans prévisions. */
@@ -208,7 +208,7 @@ object DetailBuilder {
         val rainTom = dayAt(daily(i, "precipitation_sum"), i, 1)
         out.add(
             TileSummary(
-                tile = Tile.TEMP, tab = 2, label = "Demain", short = "Demain",
+                tile = Tile.FORECAST, label = "Demain", short = "Demain",
                 value = if (maxTom != null && minTom != null) Metric.fmt(maxTom, 0) + "°/" + Metric.fmt(minTom, 0) + "°" else DASH,
                 sub = when {
                     snowTom != null && snowTom >= 0.5 -> "neige " + Metric.fmt(snowTom, 0) + " cm"
@@ -253,7 +253,7 @@ object DetailBuilder {
         // Intérieur
         out.add(
             TileSummary(
-                tile = Tile.INDOOR, label = "Intérieur", short = "Intérieur",
+                tile = Tile.HUM, label = "Intérieur", short = "Intérieur",
                 value = s?.indoorTemp?.let { Metric.fmt(it, 1) } ?: DASH, unit = "°",
                 sub = s?.indoorHumidity?.let { Metric.fmt(it, 0) + " %" } ?: "",
                 icon = R.drawable.ic_home, iconTone = Tone.DIM,
@@ -272,7 +272,6 @@ object DetailBuilder {
         Tile.FORECAST -> forecastFiche(i)
         Tile.SUN -> sunFiche(i)
         Tile.AIR -> airFiche(i)
-        Tile.INDOOR -> indoorFiche(i)
     }
 
     // ───────────────────────────── Soleil, air, intérieur ─────────────────────────────
@@ -325,28 +324,6 @@ object DetailBuilder {
             if (series.size < 2) "Qualité de l'air indisponible pour le moment." else "Indice européen : 0–20 bon, 20–40 correct, 40–60 moyen, au-delà médiocre à mauvais.",
         )
         return Fiche(Tile.AIR, listOf(page))
-    }
-
-    private fun indoorFiche(i: DetailInputs): Fiche {
-        val now = i.nowSec
-        val s = i.snap
-        val ind = i.derived?.indoorTempSeries.orEmpty().filter { it.tSec >= now - 24 * H }.map { it.tSec to it.v }
-        val gap = if (s?.indoorTemp != null && s.outdoorTemp != null) s.indoorTemp - s.outdoorTemp else null
-        val page = DetailPage(
-            "Intérieur",
-            listOf(
-                Stat("Température", deg(s?.indoorTemp), Tone.ACCENT),
-                Stat("Humidité", num(s?.indoorHumidity, 0, " %")),
-                Stat("Écart extérieur", signed(gap, 1, "°")),
-                Stat("Maxi 24 h", deg(ind.maxOfOrNull { it.second })),
-            ),
-            if (ind.size < 2) null else LineChart(
-                listOf(LineSeries(ind, Tone.WARM, fill = true)), now - 24 * H, now + 1800,
-                hourTicks(now - 24 * H, now + 1800, 6, i.zone), nowSec = now, minSpan = 2.0,
-            ),
-            if (ind.size < 2) "Pas encore d'historique de la température intérieure." else null,
-        )
-        return Fiche(Tile.INDOOR, listOf(page))
     }
 
     // ───────────────────────────── Température ─────────────────────────────
@@ -536,7 +513,7 @@ object DetailBuilder {
         return Fiche(Tile.RAIN, listOf(cumuls, soixante, heures, sept))
     }
 
-    private fun rainBins(f: Forecast?, stationRate: Double?): List<Double> = List(12) { idx ->
+    internal fun rainBins(f: Forecast?, stationRate: Double?): List<Double> = List(12) { idx ->
         val mid = idx * 5 + 2.5
         val model = f?.rainSteps?.firstOrNull { mid >= it.startMin && mid < it.startMin + it.minutes }?.mmPerHour ?: 0.0
         // Les premières minutes suivent la station quand elle détecte de la pluie.
@@ -544,7 +521,7 @@ object DetailBuilder {
     }
 
     /** Neige si la limite est sous l'altitude de l'utilisateur et qu'il gèle presque ; mélange si elle est à moins de 300 m au-dessus. */
-    private fun precipTone(altM: Double?, t: Long, temps: Map<Long, Double>, snowH: Map<Long, Double>, frz: Map<Long, Double>): Tone {
+    internal fun precipTone(altM: Double?, t: Long, temps: Map<Long, Double>, snowH: Map<Long, Double>, frz: Map<Long, Double>): Tone {
         if (altM == null) return Tone.RAIN
         val limit = snowH[t] ?: frz[t]?.let { it - 300.0 } ?: return Tone.RAIN
         val temp = temps[t]
@@ -601,7 +578,7 @@ object DetailBuilder {
     }
 
     /** Limite pluie / neige horaire : `snowfall_height`, à défaut l'isotherme 0 °C moins 300 m. */
-    private fun limitSeries(i: DetailInputs, hours: Int): List<Pair<Long, Double>> {
+    internal fun limitSeries(i: DetailInputs, hours: Int): List<Pair<Long, Double>> {
         val from = i.nowSec - 3599
         val to = i.nowSec + hours * H
         val snow = hourly(i, "snowfall_height", from, to)
@@ -830,24 +807,24 @@ object DetailBuilder {
 
     // ───────────────────────────── Outils ─────────────────────────────
 
-    private fun midnight(i: DetailInputs): Long =
+    internal fun midnight(i: DetailInputs): Long =
         Instant.ofEpochSecond(i.nowSec).atZone(i.zone).toLocalDate().atStartOfDay(i.zone).toEpochSecond()
 
     /** Valeurs horaires d'une variable entre deux instants (inclus), sans les trous. */
-    private fun hourly(i: DetailInputs, name: String, fromSec: Long, toSec: Long): List<Pair<Long, Double>> =
+    internal fun hourly(i: DetailInputs, name: String, fromSec: Long, toSec: Long): List<Pair<Long, Double>> =
         i.forecast?.raw?.hourlySeries(name).orEmpty().mapNotNull { p ->
             val v = p.second
             if (v != null && p.first in fromSec..toSec) p.first to v else null
         }
 
-    private fun hourlyMap(i: DetailInputs, name: String): Map<Long, Double> =
+    internal fun hourlyMap(i: DetailInputs, name: String): Map<Long, Double> =
         i.forecast?.raw?.hourlySeries(name).orEmpty().mapNotNull { p -> p.second?.let { p.first to it } }.toMap()
 
-    private fun daily(i: DetailInputs, name: String): List<Pair<Long, Double?>> =
+    internal fun daily(i: DetailInputs, name: String): List<Pair<Long, Double?>> =
         i.forecast?.raw?.dailySeries(name).orEmpty()
 
     /** Valeur du jour courant + `offset` jours. */
-    private fun dayAt(series: List<Pair<Long, Double?>>, i: DetailInputs, offset: Int): Double? {
+    internal fun dayAt(series: List<Pair<Long, Double?>>, i: DetailInputs, offset: Int): Double? {
         val today = series.indexOfLast { it.first <= i.nowSec }
         if (today < 0) return null
         return series.getOrNull(today + offset)?.second
@@ -866,7 +843,7 @@ object DetailBuilder {
         return out
     }
 
-    private fun hundreds(x: Double): Int = (Math.round(x / 100.0) * 100L).toInt()
+    internal fun hundreds(x: Double): Int = (Math.round(x / 100.0) * 100L).toInt()
 
     private fun hundredsOrExact(x: Double): String = Math.round(x).toString()
 
