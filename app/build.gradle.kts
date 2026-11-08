@@ -16,8 +16,8 @@ android {
         applicationId = "app.ecowidget"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.3.8"
+        versionCode = 12
+        versionName = "0.4.0"
     }
 
     signingConfigs {

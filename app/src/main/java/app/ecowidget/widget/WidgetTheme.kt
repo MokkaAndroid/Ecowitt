@@ -52,6 +52,10 @@ enum class WidgetTheme(
         previewStart = Color(0xFF111827), previewEnd = Color(0xFF1F2937),
     );
 
+    /** Fond translucide des cartes (pluie, heures) posées sur le fond du widget. */
+    @get:DrawableRes
+    val card: Int get() = if (isLight) R.drawable.card_light else R.drawable.card_dark
+
     companion object {
         fun fromName(name: String?): WidgetTheme? = entries.firstOrNull { it.name == name }
     }

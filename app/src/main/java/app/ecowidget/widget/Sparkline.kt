@@ -115,7 +115,7 @@ object Sparkline {
     }
 
     /** Courbe de Catmull-Rom convertie en Bézier cubique : lisse sans dépasser exagérément. */
-    private fun smoothPath(xs: FloatArray, ys: FloatArray): Path {
+    internal fun smoothPath(xs: FloatArray, ys: FloatArray): Path {
         val path = Path()
         path.moveTo(xs[0], ys[0])
         for (i in 0 until xs.size - 1) {

@@ -14,6 +14,9 @@ data class HourPoint(
     val popPct: Double?,
 )
 
+/** Pluie prévue sur une plage : `startMin` minutes après maintenant, pendant `minutes`, à `mmPerHour`. */
+data class RainStep(val startMin: Int, val minutes: Int, val mmPerHour: Double)
+
 /** Prévisions Open-Meteo : valeurs de l'en-tête + accès générique aux autres variables (voir [OmCatalog]). */
 data class Forecast(
     val code: Int?,
@@ -32,6 +35,8 @@ data class Forecast(
     val nowcastHorizonMin: Int,
     /** « AROME » (endpoint Météo-France) ou « modèle » (repli sur l'endpoint générique). */
     val nowcastSource: String,
+    /** Intensité prévue à court terme, découpée en plages (sert aux barres de pluie du widget). */
+    val rainSteps: List<RainStep>,
     val hours: List<HourPoint>,
     val raw: RawData?,
     val air: RawData?,
@@ -81,7 +86,7 @@ internal fun JSONArray.dbl(i: Int): Double? =
     if (i < 0 || i >= length() || isNull(i)) null else optDouble(i).takeIf { !it.isNaN() }
 
 /** Résultat de l'analyse de la pluie par pas de 15 min. */
-private data class RainScan(val nextMin: Int?, val endMin: Int?, val horizonMin: Int)
+private data class RainScan(val nextMin: Int?, val endMin: Int?, val horizonMin: Int, val steps: List<RainStep>)
 
 /** Lit la réponse de /v1/forecast (timeformat=unixtime, timezone=auto). */
 object ForecastParser {
@@ -133,6 +138,7 @@ object ForecastParser {
             hasNowcast = scan != null,
             nowcastHorizonMin = scan?.horizonMin ?: 0,
             nowcastSource = source,
+            rainSteps = scan?.steps ?: emptyList(),
             hours = hours,
             raw = raw,
             air = air?.let { RawData(it, nowSec) },
@@ -150,21 +156,29 @@ object ForecastParser {
         var scanned = 0
         var next: Int? = null
         var end: Int? = null
+        var ended = false
+        val steps = ArrayList<RainStep>()
         for (i in 0 until times.length()) {
             val slotEnd = times.optLong(i)
             if (slotEnd <= nowSec) continue // créneau déjà terminé
             if (scanned >= maxSlots) break
             scanned++
-            val wet = (precip.dbl(i) ?: 0.0) >= WET_MM
+            val mm = precip.dbl(i) ?: 0.0
+            // Plage restante du créneau (le créneau en cours a déjà commencé).
+            val effStart = maxOf(slotEnd - 900, nowSec)
+            val minutes = ((slotEnd - effStart) / 60).toInt()
+            if (minutes > 0) steps.add(RainStep(((effStart - nowSec) / 60).toInt(), minutes, mm * 4.0))
+            if (ended) continue
+            val wet = mm >= WET_MM
             val startsIn = ((slotEnd - 900 - nowSec) / 60).toInt().coerceAtLeast(0)
             if (next == null) {
                 if (wet) next = startsIn
             } else if (!wet) {
                 end = startsIn
-                break
+                ended = true
             }
         }
         if (scanned == 0) return null
-        return RainScan(next, end, scanned * 15)
+        return RainScan(next, end, scanned * 15, steps)
     }
 }

@@ -6,6 +6,7 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 > **v0.2** (Open-Meteo + courbe 24 h + couleurs dynamiques + tendances) : compile, **pas encore testée sur téléphone**.
 > **v0.3** (catalogue Open-Meteo par catégories, variable personnalisée, message pluie AROME, air/pollens) : code écrit, **compile**
 > (build GitHub Actions réussi le 08/11/2026), **pas encore testée sur téléphone**. Voir la checklist en bas de page.
+> **v0.4** (refonte de l'affichage, direction « B · Héros + pluie » choisie le 08/11/2026) : code écrit, compilation à confirmer, **pas encore testée sur téléphone**.
 
 ## Phase 0 — Cadrage
 - ✅ Station : Ecowitt HP2564 (console Wi-Fi → cloud ecowitt.net)
@@ -80,6 +81,19 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 - ✅ Appui sur le widget = actualisation immédiate (contourne les délais, 1 min minimum entre deux appels)
 - 🧪 Rendu réel sur ton lanceur et à plusieurs tailles (4×1, 4×2, 4×3, 4×4)
 
+## Phase 5 bis — Refonte de l'affichage (v0.4, direction B)
+Maquettes : canevas « Ecowidget · 3 propositions d'affichage » (A sections · B héros + pluie · C tableau de bord). Choix : **B**, avec gabarits par taille, barres de pluie et valeurs à zéro estompées.
+- 🧪 Héros : mesure principale en grand (jusqu'à 60 sp selon la hauteur), météo du moment (icône, libellé, mini · maxi) à droite, courbe 24 h entre les deux si la largeur le permet
+- 🧪 Carte pluie : message + **12 barres de 5 min** sur l'heure à venir (échelle racine carrée, 2 mm/h = hauteur pleine) ; source affichée (AROME aujourd'hui, PIAF ensuite). Affichée quand de la pluie est prévue ou en cours, sinon simple ligne
+- 🧪 Prochaines heures : bandeau (icône + température), ou carte avec **courbe** des températures quand la hauteur le permet
+- 🧪 Bandeau station : étiquette au-dessus, valeur dessous, filets verticaux (jusqu'à 5 colonnes, 3 lignes)
+- 🧪 Infos Open-Meteo restantes (air, pollens, isotherme…) en pastilles sous la station
+- 🧪 **Gabarits par taille** : budget de hauteur par priorité — héros + 1 ligne station (obligatoires) → message pluie (dans la colonne météo, puis ligne, puis carte) → heures → infos → en-tête (lieu + heure) → courbe des heures → lignes station supplémentaires → héros plus grand
+- 🧪 Valeurs à zéro estompées (0,0 mm, pollens 0, « Aucune ») ; 0 °C reste affiché normalement
+- 🧪 Si les prévisions manquent : une ligne explique pourquoi (position absente, erreur, chargement)
+- ⏳ Brancher les barres sur PIAF (pas de 5 min) : dépend du test Météo-France (unité mm ou kg/m²/s, durée de cumul)
+- ⏳ Aperçu en direct dans l'écran de personnalisation ; thème clair/sombre manuel en plus du thème par widget
+
 ## Phase 6 — Configuration
 - ✅ Écran de connexion (clés + MAC, validation du format, test en direct)
 - ✅ Écran de personnalisation par widget (thème, mesures station, infos Open-Meteo, ordre, options)
@@ -129,3 +143,6 @@ Légende : ✅ terminé · 🧪 écrit, **à tester** · ⏳ à faire · ⛔ hor
 15. [ ] Variable personnalisée : saisir `wet_bulb_temperature_2m` (horaire) → valeur affichée ; saisir un nom faux → message de refus dans Diagnostic, le widget garde les infos de base
 16. [ ] Réglages → « Météo-France · pluie imminente (test) » : coller l'Application ID, « Enregistrer et tester » → ligne « Jeton : OK », puis AROME-PI et PIAF (noter toute ligne en échec ; si PIAF = « adresse introuvable », coller l'adresse GetCapabilities exacte copiée depuis le portail, sans jeton)
 17. [ ] Réglages → Position : « Utiliser la position de ma station » (Ecowitt) ; sinon adresse précise ou coordonnées ; puis relancer le test Météo-France → 3 lignes « PIAF · HH:MM (+X min) » avec une valeur de pluie
+18. [ ] **v0.4** — Widget 4×1 / 4×2 / 4×3 / 4×4 : héros lisible, rien de coupé, station toujours visible en bas ; plus le widget est haut, plus il montre de blocs (pluie, heures, infos, en-tête, courbe)
+19. [ ] **v0.4** — Carte pluie : jour sec = ligne simple ; quand de la pluie est prévue (ou qu'il pleut) = carte avec barres ; comparer le message et les barres avec le radar
+20. [ ] **v0.4** — Valeurs à zéro estompées (pluie du jour 0,0 mm, pollens 0) ; température 0 °C affichée normalement
