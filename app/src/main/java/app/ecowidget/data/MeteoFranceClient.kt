@@ -10,6 +10,10 @@ import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URL
 import java.net.UnknownHostException
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLException
 
@@ -35,11 +39,7 @@ object MeteoFranceClient {
     private val API_HOSTS = setOf("public-api.meteofrance.fr", "api.meteofrance.fr")
     private const val CAPS_QUERY = "service=WCS&version=2.0.1&language=eng"
 
-    // AROME-PI : adresse confirmée par des projets tiers.
-    private const val AROME_PI_BASE = "https://public-api.meteofrance.fr/public/aromepi/1.0/wcs/MF-NWP-HIGHRES-AROMEPI-001-FRANCE-WCS/GetCapabilities"
-    // PIAF : le nom du service (MF-NWP-HIGHRES-PIAF-001-FRANCE-WCS) est confirmé par le portail ; le serveur
-    // affiché par le portail est « api.meteofrance.fr/pro/piaf/… » (version supposée 1.0), l'autre est une supposition.
-    private const val PIAF_PUBLIC_BASE = "https://public-api.meteofrance.fr/public/piaf/1.0/wcs/MF-NWP-HIGHRES-PIAF-001-FRANCE-WCS/GetCapabilities"
+    // PIAF : serveur « pro » affiché par le portail ; confirmé fonctionnel avec un compte gratuit (08/11/2026).
     private const val PIAF_PRO_BASE = "https://api.meteofrance.fr/pro/piaf/1.0/wcs/MF-NWP-HIGHRES-PIAF-001-FRANCE-WCS/GetCapabilities"
 
     private const val MAX_CAPS_BYTES = 12 * 1024 * 1024
@@ -48,7 +48,15 @@ object MeteoFranceClient {
     // Commande curl copiée depuis le portail : on en extrait la chaîne qui suit « Basic ».
     private val BASIC_IN_TEXT = Regex("Basic\\s+([A-Za-z0-9+/=_-]{20,})")
     private val COVERAGE_ID = Regex("<(?:\\w+:)?CoverageId>([^<]+)</(?:\\w+:)?CoverageId>")
-    private val RUN_SUFFIX = Regex("^(.+)___(\\d{4}-\\d{2}-\\d{2}T\\d{2}\\.\\d{2}\\.\\d{2}Z)$")
+    // Identifiant d'une couche : PARAMETRE___AAAA-MM-JJTHH.MM.SSZ (run) + éventuellement _PT15M (durée de cumul).
+    private val ID_PARTS = Regex("^(.+)___(\\d{4}-\\d{2}-\\d{2}T\\d{2}\\.\\d{2}\\.\\d{2}Z)(?:_(PT[0-9HMS]+))?$")
+    private val DURATION = Regex("^PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?$")
+    private val COEFFICIENTS = Regex("<(?:\\w+:)?coefficients[^>]*>([^<]+)</(?:\\w+:)?coefficients>")
+    private val BEGIN_POS = Regex("<(?:\\w+:)?beginPosition[^>]*>([^<]+)<")
+    private val END_POS = Regex("<(?:\\w+:)?endPosition[^>]*>([^<]+)<")
+    private val AXIS_LABELS = Regex("axisLabels=\"([^\"]+)\"")
+    private val EXCEPTION_TEXT = Regex("<(?:\\w+:)?ExceptionText>([^<]{1,200})")
+    private val CLOCK: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
 
     /** Accepte aussi la commande curl complète, « Basic xxx » / « Bearer xxx » ou un texte entouré de guillemets. */
     fun normalizeAppId(raw: String): String {
@@ -118,12 +126,16 @@ object MeteoFranceClient {
 
     // ───────────────────────────── Catalogue WCS ─────────────────────────────
 
+    /** Une couche WCS, décomposée : paramètre, run (heure du modèle, « HH.MM.SS »), durée de cumul éventuelle. */
+    data class CoverageRef(val param: String, val run: String, val duration: String?, val id: String)
+
     data class CapsSummary(
         val coverages: Int,
         val parameters: Int,
         val latestRun: String?,
         val precipParameters: List<String>,
         val sampleIds: List<String>,
+        val refs: List<CoverageRef>,
     )
 
     /** Seules les adresses https://public-api.meteofrance.fr/… ou https://api.meteofrance.fr/… sont acceptées. */
@@ -131,6 +143,11 @@ object MeteoFranceClient {
         var s = raw.trim()
         if (!s.contains("GetCapabilities", ignoreCase = true)) s = s.trimEnd('/') + "/GetCapabilities"
         if (!s.contains("?")) s += "?$CAPS_QUERY"
+        return checkedUrl(s)
+    }
+
+    /** Vérifie schéma, hôte et port : le jeton n'est envoyé qu'à Météo-France, en HTTPS. */
+    private fun checkedUrl(s: String): String {
         val uri = try {
             URI(s)
         } catch (e: Exception) {
@@ -167,14 +184,16 @@ object MeteoFranceClient {
 
     internal fun summarize(xml: String): CapsSummary {
         val ids = COVERAGE_ID.findAll(xml).map { it.groupValues[1].trim() }.toList()
+        val refs = ArrayList<CoverageRef>(ids.size)
         val params = LinkedHashSet<String>()
         var latest: String? = null
         for (id in ids) {
-            val m = RUN_SUFFIX.matchEntire(id)
+            val m = ID_PARTS.matchEntire(id)
             if (m != null) {
-                params += m.groupValues[1]
-                val run = m.groupValues[2]
-                if (latest == null || run > latest) latest = run
+                val ref = CoverageRef(m.groupValues[1], m.groupValues[2], m.groupValues[3].ifEmpty { null }, id)
+                refs += ref
+                params += ref.param
+                if (latest == null || ref.run > latest) latest = ref.run
             } else {
                 params += id
             }
@@ -184,25 +203,188 @@ object MeteoFranceClient {
             coverages = ids.size,
             parameters = params.size,
             latestRun = latest?.let { it.replace('.', ':') },
-            precipParameters = precip.take(4),
+            precipParameters = precip.take(3),
             sampleIds = ids.take(3),
+            refs = refs,
         )
     }
 
+    private fun durationSec(d: String?): Long {
+        val m = d?.let { DURATION.matchEntire(it) } ?: return 0L
+        val h = m.groupValues[1].toLongOrNull() ?: 0L
+        val min = m.groupValues[2].toLongOrNull() ?: 0L
+        val sec = m.groupValues[3].toLongOrNull() ?: 0L
+        return h * 3600L + min * 60L + sec
+    }
+
+    private fun parseRun(run: String): Instant? = runCatching { Instant.parse(run.replace('.', ':')) }.getOrNull()
+
+    /** Couche de précipitations du run le plus récent, avec la plus courte durée de cumul disponible. */
+    internal fun pickPrecip(refs: List<CoverageRef>): Pair<CoverageRef, List<String>>? {
+        val precip = refs.filter { it.param.contains("PRECIP", ignoreCase = true) || it.param.contains("RAIN", ignoreCase = true) }
+        if (precip.isEmpty()) return null
+        val preferred = precip.filter { it.param.startsWith("TOTAL_PRECIPITATION_RATE") }.ifEmpty { precip }
+        val latest = preferred.maxOf { it.run }
+        val sameRun = preferred.filter { it.run == latest }
+        val chosen = sameRun.minByOrNull { durationSec(it.duration) } ?: return null
+        val durations = sameRun.mapNotNull { it.duration }.distinct().sortedBy { durationSec(it) }
+        return chosen to durations
+    }
+
+    // ───────────────────────────── DescribeCoverage / GetCoverage ─────────────────────────────
+
+    data class CoverageInfo(val steps: Int, val stepSec: Long?, val begin: String?, val end: String?, val axes: String?)
+
+    internal fun parseDescribe(xml: String): CoverageInfo {
+        val series = COEFFICIENTS.findAll(xml)
+            .map { m -> m.groupValues[1].trim().split(Regex("\\s+")).mapNotNull { it.toDoubleOrNull() } }
+            .maxByOrNull { it.size }
+            .orEmpty()
+        val step = if (series.size >= 2) (series[1] - series[0]).toLong() else null
+        return CoverageInfo(
+            steps = series.size,
+            stepSec = step,
+            begin = BEGIN_POS.find(xml)?.groupValues?.get(1)?.trim(),
+            end = END_POS.find(xml)?.groupValues?.get(1)?.trim(),
+            axes = AXIS_LABELS.find(xml)?.groupValues?.get(1),
+        )
+    }
+
+    private fun getBytes(url: String, token: String, accept: String, maxBytes: Int): ByteArray {
+        val conn = URL(checkedUrl(url)).openConnection() as HttpsURLConnection
+        try {
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 8_000
+            conn.readTimeout = 25_000
+            conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.setRequestProperty("Accept", accept)
+            val http = conn.responseCode
+            if (http != HttpsURLConnection.HTTP_OK) {
+                val detail = runCatching { conn.errorStream?.let { readLimited(it, 16 * 1024) } }.getOrNull()
+                throw MfException(httpMessage(http, detail))
+            }
+            val out = ByteArrayOutputStream()
+            val buf = ByteArray(16 * 1024)
+            conn.inputStream.use { s ->
+                while (true) {
+                    val n = s.read(buf)
+                    if (n < 0) break
+                    if (out.size() + n > maxBytes) throw MfException("Réponse trop volumineuse")
+                    out.write(buf, 0, n)
+                }
+            }
+            return out.toByteArray()
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun fmtValue(v: Float): String = String.format(Locale.US, "%.4g", v)
+
+    /**
+     * Lecture de PIAF au point de la station : choisit la couche de précipitations du dernier run, lit ses échéances
+     * (DescribeCoverage) puis extrait un petit GeoTIFF autour de la position pour 3 échéances.
+     */
+    private fun probePiaf(ctx: Context, token: String, capsUrl: String, caps: CapsSummary, out: MutableList<TestLine>) {
+        val pick = pickPrecip(caps.refs)
+        if (pick == null) {
+            out += TestLine("PIAF · aucune couche de précipitations trouvée dans le catalogue", false)
+            return
+        }
+        val (ref, durations) = pick
+        val runAt = parseRun(ref.run)
+        out += TestLine(
+            "PIAF · couche : ${ref.param} · dernier run ${runAt?.let { CLOCK.format(it) } ?: ref.run} · " +
+                "durées : ${durations.joinToString().ifEmpty { "—" }} · utilisée : ${ref.duration ?: "—"}",
+            true,
+        )
+
+        val base = capsUrl.substringBefore("?").substringBeforeLast("/GetCapabilities")
+        val info = try {
+            parseDescribe(String(getBytes("$base/DescribeCoverage?service=WCS&version=2.0.1&coverageid=${ref.id}", token, "application/xml", 2 * 1024 * 1024), Charsets.UTF_8))
+        } catch (e: Exception) {
+            out += TestLine("PIAF · DescribeCoverage : échec · ${describe(e)}", false)
+            return
+        }
+        val begin = info.begin?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val end = info.end?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        out += TestLine(
+            "PIAF · DescribeCoverage : OK · ${info.steps} échéances" +
+                (info.stepSec?.let { " (pas ${it / 60} min)" } ?: "") +
+                (if (begin != null && end != null) " · de ${CLOCK.format(begin)} à ${CLOCK.format(end)}" else " · ${info.begin ?: "?"} → ${info.end ?: "?"}") +
+                (info.axes?.let { " · axes $it" } ?: ""),
+            true,
+        )
+
+        val loc = Storage.location(ctx)
+        if (loc == null) {
+            out += TestLine("PIAF · position de la station non définie : lecture ponctuelle non testée", false)
+            return
+        }
+        val times: List<Instant> = if (begin != null && end != null && !end.isBefore(begin)) {
+            val mid = Instant.ofEpochSecond((begin.epochSecond + end.epochSecond) / 2 / 300L * 300L)
+            listOf(begin, mid, end).distinct()
+        } else if (runAt != null) {
+            listOf(runAt.plusSeconds(300), runAt.plusSeconds(1800), runAt.plusSeconds(10800))
+        } else {
+            out += TestLine("PIAF · échéances inconnues : lecture ponctuelle non testée", false)
+            return
+        }
+
+        val half = 0.025
+        fun deg(v: Double) = String.format(Locale.US, "%.4f", v)
+        for (t in times) {
+            val label = "PIAF · ${CLOCK.format(t)}" + (runAt?.let { " (+${(t.epochSecond - it.epochSecond) / 60} min)" } ?: "")
+            var raw: ByteArray? = null
+            try {
+                val url = "$base/GetCoverage?service=WCS&version=2.0.1&coverageid=${ref.id}" +
+                    "&subset=time(${DateTimeFormatter.ISO_INSTANT.format(t)})" +
+                    "&subset=lat(${deg(loc.latitude - half)},${deg(loc.latitude + half)})" +
+                    "&subset=long(${deg(loc.longitude - half)},${deg(loc.longitude + half)})" +
+                    "&format=image/tiff"
+                val bytes = getBytes(url, token, "image/tiff", 2 * 1024 * 1024)
+                raw = bytes
+                val raster = try {
+                    GeoTiff.decode(bytes)
+                } catch (e: IllegalArgumentException) {
+                    throw e
+                } catch (e: Exception) {
+                    throw IllegalArgumentException(e.javaClass.simpleName)
+                }
+                val v = raster.valueAt(loc.latitude, loc.longitude)
+                val r = raster.range()
+                out += TestLine(
+                    "$label : ${v?.let { fmtValue(it) } ?: "pas de donnée"} · grille ${raster.width}×${raster.height}" +
+                        (r?.let { " · min ${fmtValue(it.first)} · max ${fmtValue(it.second)}" } ?: "") +
+                        if (raster.georeferenced) "" else " · sans géoréférencement",
+                    v != null,
+                )
+            } catch (e: Exception) {
+                val hint = raw?.let { b -> " · ${b.size} o · début " + b.take(4).joinToString("") { "%02x".format(it) } } ?: ""
+                val why = if (e is IllegalArgumentException) "lecture GeoTIFF impossible (${e.message})" else describe(e)
+                out += TestLine("$label : échec · $why$hint", false)
+            }
+        }
+    }
+
     private fun httpMessage(http: Int, body: String?): String {
-        // Message de la passerelle (jamais de secret dedans) : utile pour distinguer « pas abonné » de « jeton expiré ».
+        // Message de la passerelle ou du service WCS (jamais de secret dedans) : distingue « pas abonné », « jeton expiré »,
+        // « paramètre invalide »…
         val gateway = body?.let {
             runCatching {
                 val fault = JSONObject(it).optJSONObject("fault")
                 (fault?.optString("description")?.takeIf { d -> d.isNotBlank() } ?: fault?.optString("message"))
             }.getOrNull()
-        }?.take(140)
+        }
+        val wcs = body?.let { EXCEPTION_TEXT.find(it)?.groupValues?.get(1)?.trim() }
+        val detail = (wcs ?: gateway)?.take(160)?.let { " · $it" }.orEmpty()
         return when (http) {
-            401, 403 -> "accès refusé (HTTP $http) : abonnement manquant à cette API, ou identifiant invalide" +
-                (gateway?.let { " · $it" } ?: "")
-            404 -> "adresse introuvable (HTTP 404)"
+            401, 403 -> "accès refusé (HTTP $http) : abonnement manquant à cette API, ou identifiant invalide$detail"
+            400 -> "requête refusée (HTTP 400)$detail"
+            404 -> "adresse introuvable (HTTP 404)$detail"
             429 -> "limite de requêtes atteinte (HTTP 429)"
-            else -> "serveur Météo-France indisponible (HTTP $http)"
+            else -> "serveur Météo-France indisponible (HTTP $http)$detail"
         }
     }
 
@@ -220,10 +402,9 @@ object MeteoFranceClient {
             return out
         }
 
+        // AROME-PI et le serveur public PIAF n'ont pas donné de résultat utile (abonnement / adresse) : seul PIAF « pro » est testé.
         val candidates = ArrayList<Pair<String, String>>()
-        candidates += "AROME-PI" to "$AROME_PI_BASE?$CAPS_QUERY"
-        candidates += "PIAF (serveur pro, version supposée)" to "$PIAF_PRO_BASE?$CAPS_QUERY"
-        candidates += "PIAF (serveur public, supposé)" to "$PIAF_PUBLIC_BASE?$CAPS_QUERY"
+        candidates += "PIAF" to "$PIAF_PRO_BASE?$CAPS_QUERY"
         customUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { candidates += "Adresse saisie" to it }
 
         for ((name, url) in candidates) {
@@ -239,6 +420,13 @@ object MeteoFranceClient {
                     parts += "ex. " + s.sampleIds.joinToString(", ")
                 }
                 out += TestLine("$name : OK · " + parts.joinToString(" · "), true)
+                if (url.contains("PIAF", ignoreCase = true)) {
+                    try {
+                        probePiaf(ctx, tok.value, checkedCapsUrl(url), s, out)
+                    } catch (e: Exception) {
+                        out += TestLine("PIAF · lecture ponctuelle : échec · ${describe(e)}", false)
+                    }
+                }
             } catch (e: Exception) {
                 out += TestLine("$name : échec · ${describe(e)}", false)
             }
