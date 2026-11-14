@@ -4,6 +4,7 @@ import androidx.annotation.DrawableRes
 import app.ecowidget.R
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 import kotlin.math.roundToInt
 
 data class HourPoint(
@@ -42,6 +43,8 @@ data class Forecast(
     val air: RawData?,
     /** Correction d'altitude des températures ; null si l'altitude n'est pas renseignée. */
     val altitude: AltitudeInfo? = null,
+    /** Cumuls (mm) des prochains créneaux de 15 min selon chaque source : sert au diagnostic des réglages. */
+    val rainDebug: String = "",
 )
 
 /** Correspondance des codes météo WMO utilisés par Open-Meteo. */
@@ -120,13 +123,19 @@ object ForecastParser {
             }
         }
 
-        // Pluie à court terme : l'endpoint Météo-France (AROME, 6 h) d'abord, sinon la réponse générique (3 h).
-        var source = "AROME"
-        var scan = scanRain(nowcast, nowSec, 24)
-        if (scan == null) {
-            source = "modèle"
-            scan = scanRain(json, nowSec, 12)
+        // Pluie à court terme : on croise l'endpoint Météo-France (AROME, 6 h) et la réponse générique (même
+        // modèle que les barres « heure par heure »). Par créneau on garde le plus pluvieux des deux : une seule
+        // source sèche ne doit pas annoncer « plus de pluie » quand l'autre en prévoit.
+        val arome = quarterHours(nowcast)
+        val generic = quarterHours(json)
+        val aromeOk = arome.values.any { it != null }
+        val genericOk = generic.values.any { it != null }
+        val source = when {
+            aromeOk && genericOk -> "AROME + modèle"
+            aromeOk -> "AROME"
+            else -> "modèle"
         }
+        val scan = scanRain(arome, generic, nowSec, if (aromeOk) 24 else 12)
 
         return Forecast(
             code = raw.number(OmSection.CURRENT, "weather_code")?.roundToInt(),
@@ -144,28 +153,36 @@ object ForecastParser {
             hours = hours,
             raw = raw,
             air = air?.let { RawData(it, nowSec) },
+            rainDebug = debugLine(arome, generic, nowSec),
         )
     }
 
+    /** Cumuls de `minutely_15.precipitation` : fin du créneau (s) → mm, `null` quand la valeur manque. */
+    private fun quarterHours(json: JSONObject?): Map<Long, Double?> {
+        val m = json?.optJSONObject("minutely_15") ?: return emptyMap()
+        val times = m.optJSONArray("time") ?: return emptyMap()
+        val precip = m.optJSONArray("precipitation") ?: return emptyMap()
+        val out = LinkedHashMap<Long, Double?>()
+        for (i in 0 until times.length()) out[times.optLong(i)] = precip.dbl(i)
+        return out
+    }
+
+    private fun mm1(v: Double?): String = if (v == null) "—" else String.format(Locale.FRANCE, "%.1f", v)
+
     /**
      * Parcourt les créneaux de 15 min à venir. `minutely_15.precipitation` est le cumul des 15 min PRÉCÉDENTES :
-     * l'horodatage est donc la fin du créneau.
+     * l'horodatage est donc la fin du créneau. Une valeur absente (null) n'est PAS « sec » : le créneau est ignoré.
      */
-    private fun scanRain(json: JSONObject?, nowSec: Long, maxSlots: Int): RainScan? {
-        val m = json?.optJSONObject("minutely_15") ?: return null
-        val times = m.optJSONArray("time") ?: return null
-        val precip = m.optJSONArray("precipitation") ?: return null
+    private fun scanRain(arome: Map<Long, Double?>, generic: Map<Long, Double?>, nowSec: Long, maxSlots: Int): RainScan? {
         var scanned = 0
         var next: Int? = null
         var end: Int? = null
         var ended = false
         val steps = ArrayList<RainStep>()
-        for (i in 0 until times.length()) {
-            val slotEnd = times.optLong(i)
-            if (slotEnd <= nowSec) continue // créneau déjà terminé
+        for (slotEnd in (arome.keys + generic.keys).filter { it > nowSec }.sorted()) {
+            val mm = listOfNotNull(arome[slotEnd], generic[slotEnd]).maxOrNull() ?: continue
             if (scanned >= maxSlots) break
             scanned++
-            val mm = precip.dbl(i) ?: 0.0
             // Plage restante du créneau (le créneau en cours a déjà commencé).
             val effStart = maxOf(slotEnd - 900, nowSec)
             val minutes = ((slotEnd - effStart) / 60).toInt()
@@ -182,5 +199,13 @@ object ForecastParser {
         }
         if (scanned == 0) return null
         return RainScan(next, end, scanned * 15, steps)
+    }
+
+    /** « AROME 0,3 0,3 0,0 · modèle 0,2 … » : les 8 prochains créneaux de 15 min, pour comprendre un écart entre sources. */
+    private fun debugLine(arome: Map<Long, Double?>, generic: Map<Long, Double?>, nowSec: Long): String {
+        val ends = (arome.keys + generic.keys).filter { it > nowSec }.sorted().take(8)
+        if (ends.isEmpty()) return ""
+        return "Pluie 15 min (mm) · AROME " + ends.joinToString(" ") { mm1(arome[it]) } +
+            " · modèle " + ends.joinToString(" ") { mm1(generic[it]) }
     }
 }

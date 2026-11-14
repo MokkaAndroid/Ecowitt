@@ -145,6 +145,7 @@ private fun diagnostics(ctx: Context): List<Pair<String, Boolean>> {
             ncAt > 0 -> "Pluie à court terme (AROME) : OK à ${clock(ncAt)}" to true
             else -> "Pluie à court terme (AROME) : pas encore chargée" to false
         }
+        WeatherRepository.forecast(ctx)?.rainDebug?.takeIf { it.isNotEmpty() }?.let { out += it to true }
 
         // Air et pollens : uniquement quand au moins une info de cette catégorie est utilisée.
         val airUsed = WeatherRepository.currentNeeds(ctx).air.isNotEmpty()
