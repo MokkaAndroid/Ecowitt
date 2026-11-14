@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import app.ecowidget.data.DetailData
+import app.ecowidget.data.EcowittClient
 import app.ecowidget.data.Storage
 import app.ecowidget.data.WeatherRepository
 import app.ecowidget.widget.WidgetRefresh
@@ -28,8 +29,11 @@ class UpdateReceiver : BroadcastReceiver() {
                         // D'abord la suivante : même si la suite échoue, la chaîne continue.
                         UpdateScheduler.scheduleNext(app)
                         if (UpdateScheduler.hasWidgets(app)) {
-                            WeatherRepository.refresh(app)
+                            val err = WeatherRepository.refresh(app)
                             WidgetRefresh.all(app)
+                            // Pas de réseau (veille profonde, mode avion…) : on réessaie dès qu'il revient,
+                            // sans attendre le cycle suivant.
+                            if (err == EcowittClient.OFFLINE_MSG) UpdateScheduler.enqueueRefresh(app)
                         }
                     } finally {
                         pending.finish()

@@ -163,7 +163,7 @@ private const val FULL_MIN_TILE_H = 54f
 private const val FULL_MAX_TILE_H = 96f
 
 /** Les tuiles de la rangée basse, dans l'ordre. */
-private val SHORT_TILES = listOf(Tile.TEMP, Tile.RAIN, Tile.SNOW, Tile.WIND, Tile.HUM, Tile.PRESS, Tile.FORECAST)
+private val SHORT_TILES = listOf(Tile.TEMP, Tile.RAIN, Tile.SNOW, Tile.WIND, Tile.FORECAST)
 
 @Composable
 private fun TilesView(
@@ -213,12 +213,14 @@ private fun TilesView(
             lines.forEachIndexed { r, line ->
                 if (r > 0) Spacer(modifier = GlanceModifier.height(TILE_GAP.dp))
                 Row(modifier = GlanceModifier.fillMaxWidth()) {
+                    // Dernière rangée incomplète : ses tuiles se partagent toute la largeur.
+                    val rowW = if (r > 0 && line.size < 4) kotlin.math.floor((availW - (line.size - 1) * TILE_GAP) / line.size) else colW
                     line.forEachIndexed { k, s ->
                         if (k > 0) Spacer(modifier = GlanceModifier.width(TILE_GAP.dp))
                         if (s.wide) {
                             WideTile(p, s, accent, wideW, fullTileH, open(s))
                         } else {
-                            RichTile(p, s, colW, fullTileH, open(s))
+                            RichTile(p, s, rowW, fullTileH, open(s))
                         }
                     }
                 }

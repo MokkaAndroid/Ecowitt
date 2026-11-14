@@ -16,8 +16,8 @@ android {
         applicationId = "app.ecowidget"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "0.6.4"
+        versionCode = 26
+        versionName = "0.6.5"
     }
 
     signingConfigs {
@@ -63,5 +63,6 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
 }

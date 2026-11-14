@@ -169,6 +169,13 @@ object Storage {
         plain(ctx).edit().putInt("interval_min", minutes.coerceAtLeast(2)).apply()
     }
 
+    /** Échéance (heure murale, ms) de la prochaine alarme d'actualisation : sert à détecter une chaîne d'alarmes rompue. */
+    fun nextDueAt(ctx: Context): Long = plain(ctx).getLong("next_due_at", 0L)
+
+    fun setNextDueAt(ctx: Context, atMs: Long) {
+        plain(ctx).edit().putLong("next_due_at", atMs).apply()
+    }
+
     // ---- Configuration par widget ----
 
     /**

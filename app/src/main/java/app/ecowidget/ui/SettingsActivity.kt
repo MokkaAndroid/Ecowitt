@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -200,6 +201,9 @@ private fun SettingsScreen(tick: Int) {
     var refreshing by remember { mutableStateOf(false) }
 
     val exactOk = remember(tick) { UpdateScheduler.canScheduleExact(ctx) }
+    val batteryFree = remember(tick) {
+        ctx.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(ctx.packageName) == true
+    }
     val cached = remember(tick, testResult, diagTick) { WeatherRepository.cached(ctx) }
     val diag = remember(tick, testResult, diagTick, location) { diagnostics(ctx) }
     val altInfo = remember(tick, diagTick, location) { WeatherRepository.forecast(ctx)?.altitude }
@@ -699,6 +703,32 @@ private fun SettingsScreen(tick: Int) {
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Autoriser les alarmes exactes") }
+                }
+                if (batteryFree) {
+                    Text(
+                        "Batterie : l'application n'est pas restreinte.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        "Batterie : écran éteint, Android (surtout avec l'économiseur du constructeur) peut suspendre " +
+                            "l'application et couper son accès au réseau : les widgets ne se mettent alors à jour qu'au réveil " +
+                            "du téléphone. Autoriser l'application à ne pas être restreinte règle ce cas.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            ctx.startActivity(
+                                Intent(
+                                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    Uri.parse("package:${ctx.packageName}"),
+                                ),
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Ne pas restreindre la batterie") }
                 }
                 Text(
                     "Les mesures en direct sont rechargées à chaque cycle ; l'historique 24 h toutes les 15 min " +

@@ -142,10 +142,13 @@ object EcowittClient {
         }
     }
 
+    /** Message d'une panne de réseau (la mise à jour est alors reprogrammée dès que le réseau revient). */
+    const val OFFLINE_MSG = "Réseau indisponible"
+
     /** Message lisible, sans jamais exposer l'URL ni les clés. */
     fun describe(e: Throwable): String = when (e) {
         is ApiException -> e.message ?: "Erreur Ecowitt"
-        is UnknownHostException, is ConnectException, is SocketTimeoutException -> "Réseau indisponible"
+        is UnknownHostException, is ConnectException, is SocketTimeoutException -> OFFLINE_MSG
         is SSLException -> "Connexion sécurisée impossible"
         is JSONException -> "Réponse Ecowitt illisible"
         else -> "Erreur inattendue"

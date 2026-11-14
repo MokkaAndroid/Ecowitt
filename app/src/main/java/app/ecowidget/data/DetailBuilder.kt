@@ -155,28 +155,6 @@ object DetailBuilder {
             ),
         )
 
-        // Humidité
-        out.add(
-            TileSummary(
-                tile = Tile.HUM, label = "Humidité", short = "Humidité",
-                value = s?.humidity?.let { Metric.fmt(it, 0) } ?: DASH, unit = "%",
-                sub = s?.dewPoint?.let { "rosée " + Metric.fmt(it, 1) + "°" } ?: "",
-                icon = Tile.HUM.icon, iconTone = Tone.HUMID,
-            ),
-        )
-
-        // Pression
-        val pTrend = Metric.trendOf(d?.pressTrend3h, 1.0)
-        out.add(
-            TileSummary(
-                tile = Tile.PRESS, label = "Pression", short = "hPa",
-                value = s?.pressure?.let { Metric.fmt(it, 0) } ?: DASH,
-                sub = d?.pressTrend3h?.let { signed(it, 1, " / 3 h") } ?: "",
-                icon = Tile.PRESS.icon, iconTone = Tone.PRESSURE,
-                trend = if (pTrend == 1 || pTrend == -1) pTrend else null,
-            ),
-        )
-
         // Limite neige
         val lim = limitSeries(i, 24)
         val limNow = lim.firstOrNull()?.second
