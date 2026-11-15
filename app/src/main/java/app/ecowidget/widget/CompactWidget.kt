@@ -163,7 +163,7 @@ private const val FULL_MIN_TILE_H = 54f
 private const val FULL_MAX_TILE_H = 96f
 
 /** Les tuiles de la rangée basse, dans l'ordre. */
-private val SHORT_TILES = listOf(Tile.TEMP, Tile.RAIN, Tile.SNOW, Tile.WIND, Tile.FORECAST)
+private val SHORT_TILES = listOf(Tile.TEMP, Tile.RAIN, Tile.SNOW, Tile.WIND, Tile.HUM, Tile.PRESS, Tile.FORECAST)
 
 @Composable
 private fun TilesView(

@@ -16,6 +16,7 @@ import app.ecowidget.data.Hue
 import app.ecowidget.data.Legend
 import app.ecowidget.data.LegendKind
 import app.ecowidget.data.Plot
+import app.ecowidget.data.RainColors
 import app.ecowidget.data.SH
 import app.ecowidget.data.SheetCharts
 import app.ecowidget.data.Tile
@@ -447,11 +448,9 @@ internal object W3Pages {
         val s = i.snap
         val bins = DetailBuilder.rainBins(f, s?.rainRate)
         val peak = bins.maxOrNull() ?: 0.0
-        val word = when {
-            peak < 1.0 -> "faible"
-            peak < 4.0 -> "modérée"
-            else -> "forte"
-        }
+        val level = max(peak, s?.rainRate ?: 0.0)
+        val word = RainColors.word(RainColors.RATE, peak)
+        val rainHue = if (level > 0.0) RainColors.hue(RainColors.RATE, level) else Hue.BLUE
         val title: String
         val icon: Int
         val hue: Hue
@@ -460,10 +459,10 @@ internal object W3Pages {
                 title = "Prévision de pluie indisponible"; icon = R.drawable.mk_cloud; hue = Hue.MUTED
             }
             s?.isRaining == true -> {
-                title = "Il pleut" + (f.rainEndMin?.let { " · fin dans " + OmFormat.delay(it) } ?: ""); icon = R.drawable.mk_rain; hue = Hue.BLUE
+                title = "Il pleut" + (f.rainEndMin?.let { " · fin dans " + OmFormat.delay(it) } ?: ""); icon = R.drawable.mk_rain; hue = rainHue
             }
             f.nextRainMin != null && f.nextRainMin <= 60 -> {
-                title = "Pluie $word dans " + OmFormat.delay(f.nextRainMin); icon = R.drawable.mk_rain; hue = Hue.BLUE
+                title = "Pluie $word dans " + OmFormat.delay(f.nextRainMin); icon = R.drawable.mk_rain; hue = rainHue
             }
             else -> {
                 title = "Pas de pluie dans l’heure"; icon = R.drawable.mk_check; hue = Hue.GREEN
@@ -478,7 +477,11 @@ internal object W3Pages {
                 c.translate(0f, 36f)
                 SheetCharts.nowcast(bins, "maint.", "+30 min", "+1 h").make(w).draw(c)
                 c.restore()
-                G.text(c, f.nowcastSource + " · pas de 5 minutes", 0f, 112f, Hue.MUTED, 10f)
+                val src = f.nowcastSource + " · pas de 5 minutes"
+                G.text(c, src, 0f, 112f, Hue.MUTED, 10f)
+                // Échelle d'intensité à droite de la source, si la place le permet.
+                val sw = min(100f, w - G.paint(Hue.MUTED, 10f).measureText(src) - 70f)
+                if (sw >= 60f) SheetCharts.drawRamp(c, RainColors.RATE, w - sw - 40f, 103f, sw)
             }
         }
     }
@@ -520,7 +523,7 @@ internal object W3Pages {
                 if (bar.mm <= 0.0) {
                     c.drawRoundRect(x, y, x + bw, y + hp, 3f, 3f, Gfx.fill(Hue.LINE))
                 } else when (bar.kind) {
-                    0 -> c.drawRoundRect(x, y, x + bw, y + hp, 3f, 3f, Gfx.fill(Hue.BLUE))
+                    0 -> c.drawRoundRect(x, y, x + bw, y + hp, 3f, 3f, Gfx.fill(RainColors.hue(RainColors.RATE, bar.mm)))
                     1 -> Gfx.hatchRect(c, x, y, bw, hp, 3f)
                     else -> c.drawRoundRect(x, y, x + bw, y + hp, 3f, 3f, Gfx.fill(Hue.SNOW))
                 }
@@ -531,11 +534,12 @@ internal object W3Pages {
                 }
             }
             G.text(c, "lim.", l - 5f, h - b + 22f, Hue.ICY, 8f, RGT)
-            G.legend(
-                c,
-                listOf(Legend(LegendKind.BOX, Hue.BLUE, "Pluie"), Legend(LegendKind.HATCH, Hue.ICY, "Pluie ou neige"), Legend(LegendKind.SNOW, Hue.SNOW, "Neige qui tient")),
-                0f, 102f,
-            )
+            // Échelle d'intensité (mm/h), puis les légendes de la pluie mêlée et de la neige quand elles apparaissent.
+            val right = SheetCharts.drawRamp(c, RainColors.RATE, 0f, 100f, 100f)
+            val extra = ArrayList<Legend>()
+            if (bars.any { it.kind == 1 && it.mm > 0.0 }) extra.add(Legend(LegendKind.HATCH, Hue.ICY, "Pluie ou neige"))
+            if (bars.any { it.kind == 2 && it.mm > 0.0 }) extra.add(Legend(LegendKind.SNOW, Hue.SNOW, "Neige"))
+            G.legend(c, extra, right + 12f, 99f)
         }
     }
 
@@ -546,9 +550,10 @@ internal object W3Pages {
         val todayIdx = dayPrec.indexOfLast { it.first <= now }
         val idx = if (todayIdx >= 0) ((todayIdx + 1)..minOf(todayIdx + 7, dayPrec.size - 1)).toList() else emptyList()
         Drawing(DESIGN_H) { c ->
+            val chartH = 102f
             val t = 22f
             val b = 16f
-            val ph = DESIGN_H - t - b
+            val ph = chartH - t - b
             val tops = idx.map { dayPrec[it].second ?: 0.0 }
             val ymax = max(5.0, ceil(tops.maxOrNull() ?: 0.0))
             val slot = w / max(1, idx.size)
@@ -562,7 +567,7 @@ internal object W3Pages {
                 if (tot > 0.0) {
                     val hp = max(4f, ph * (tot / ymax).toFloat())
                     val top = t + ph - hp
-                    c.drawRoundRect(x, top, x + bw, top + hp, 4f, 4f, Gfx.fill(Hue.BLUE))
+                    c.drawRoundRect(x, top, x + bw, top + hp, 4f, 4f, Gfx.fill(RainColors.hue(RainColors.DAY, tot)))
                     if (snow > 0.0) {
                         val sh = (hp * (snow / tot)).toFloat().coerceAtLeast(8f).coerceAtMost(hp)
                         c.drawRoundRect(x, top, x + bw, top + sh, 4f, 4f, Gfx.fill(Hue.SNOW))
@@ -573,8 +578,9 @@ internal object W3Pages {
                     c.drawRoundRect(x, t + ph - 2f, x + bw, t + ph, 1f, 1f, Gfx.fill(Hue.LINE))
                     G.text(c, "0", cx, t + ph - 7f, Hue.DIM, 10f, CTR)
                 }
-                G.text(c, SH.dayLabel(i, dayPrec[di].first), cx, DESIGN_H - 2f, Hue.MUTED, 10f, CTR)
+                G.text(c, SH.dayLabel(i, dayPrec[di].first), cx, chartH - 2f, Hue.MUTED, 10f, CTR)
             }
+            SheetCharts.drawRamp(c, RainColors.DAY, 0f, 104f, 120f)
         }
     }
 

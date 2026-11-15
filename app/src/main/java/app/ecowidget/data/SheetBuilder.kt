@@ -315,7 +315,11 @@ internal object SheetsA {
         val f = i.forecast
         if (i.snap?.isRaining == true) {
             val end = f?.rainEndMin
-            return PillB(R.drawable.mk_rain, if (end != null) "Il pleut · fin dans " + OmFormat.delay(end) else "Il pleut", Hue.BLUE)
+            val rate = i.snap?.rainRate ?: 0.0
+            return PillB(
+                R.drawable.mk_rain, if (end != null) "Il pleut · fin dans " + OmFormat.delay(end) else "Il pleut",
+                if (rate > 0.0) RainColors.hue(RainColors.RATE, rate) else Hue.BLUE,
+            )
         }
         val ep = DetailBuilder.episode(i) ?: return null
         val first = ep.first ?: return PillB(R.drawable.mk_check, "Pas de pluie prévue sur 24 h", Hue.GREEN)
@@ -323,11 +327,7 @@ internal object SheetsA {
         val start = if (nextMin != null && nextMin in 1..120) i.nowSec + nextMin * 60L else first
         val prec = DetailBuilder.hourly(i, "precipitation", start, start + 3 * SH.H)
         val peak = prec.maxOfOrNull { it.second } ?: 0.0
-        val word = when {
-            peak < 1.0 -> "faible"
-            peak < 4.0 -> "modérée"
-            else -> "forte"
-        }
+        val word = RainColors.word(RainColors.RATE, peak)
         val day = if (DetailBuilder.sameDay(start, i.nowSec, i.zone)) "" else "demain "
         var text = if (ep.firstIsSnow) "Neige dès $day" else "Pluie $word dès $day"
         text += DetailBuilder.hm(max(start, i.nowSec), i.zone)
@@ -335,7 +335,7 @@ internal object SheetsA {
         if (!ep.firstIsSnow && sn != null) {
             text += ", neige possible vers " + (if (DetailBuilder.sameDay(sn, i.nowSec, i.zone)) "" else "demain ") + DetailBuilder.hm(sn, i.zone)
         }
-        return PillB(R.drawable.mk_rain, text, Hue.BLUE)
+        return PillB(R.drawable.mk_rain, text, if (peak > 0.0) RainColors.hue(RainColors.RATE, peak) else Hue.BLUE)
     }
 
     fun rain(i: DetailInputs): Sheet {
@@ -431,9 +431,9 @@ internal object SheetsA {
                     "Prochaines heures · heure par heure", "mm",
                     listOf(
                         ChartB(SheetCharts.rainHours(bars, ymax)),
+                        ChartB(SheetCharts.ramp(RainColors.RATE)),
                         LegendB(
                             listOf(
-                                Legend(LegendKind.BOX, Hue.BLUE, "Pluie"),
                                 Legend(LegendKind.HATCH, Hue.ICY, "Pluie ou neige possible"),
                                 Legend(LegendKind.SNOW, Hue.SNOW, "Neige qui tient"),
                             ),
@@ -454,7 +454,7 @@ internal object SheetsA {
             blocks.add(
                 Card(
                     "60 prochaines minutes · " + f.nowcastSource, "pas de 5 min",
-                    listOf(ChartB(SheetCharts.nowcast(bins, "maint.", "+30 min", "+1 h"))),
+                    listOf(ChartB(SheetCharts.nowcast(bins, "maint.", "+30 min", "+1 h")), ChartB(SheetCharts.ramp(RainColors.RATE))),
                 ),
             )
         }
@@ -468,7 +468,7 @@ internal object SheetsA {
                 WeekDay(SH.dayLabel(i, dayPrec[k].first), mm, min(mm, cm / 10.0).let { if (it >= 0.3) it else 0.0 })
             }
             val ymax = max(5.0, ceil(days.maxOf { it.total }))
-            blocks.add(Card("7 prochains jours", Fmt.fr(weekMm) + " mm", listOf(ChartB(SheetCharts.week(days, ymax)))))
+            blocks.add(Card("7 prochains jours", Fmt.fr(weekMm) + " mm", listOf(ChartB(SheetCharts.week(days, ymax)), ChartB(SheetCharts.ramp(RainColors.DAY)))))
         }
         return Sheet(Tile.RAIN, "Pluie et neige", "Station + Open-Meteo · " + SH.hhmm(i, now), R.drawable.mk_rain, Hue.BLUE, blocks)
     }

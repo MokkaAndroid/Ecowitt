@@ -9,6 +9,7 @@ import android.graphics.Typeface
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -24,9 +25,38 @@ enum class Hue(argb: Long) {
     TXT(0xFFEAF1F7), MUTED(0xFF9DB0C2), DIM(0xFF8EA2B5), TEAL(0xFF52D1C4), BLUE(0xFF5BB0FF), ORANGE(0xFFF2B66D),
     GREEN(0xFF5FD08A), ICY(0xFFBFE3F2), SNOW(0xFF3A63D8), COLD(0xFF7CC0FF), LAV(0xFFB3A4FF), HUM(0xFF6CC4F5),
     PRES(0xFFE7C46B), SUN(0xFFFFD166), LINE(0xFF2A3B4D), CARD(0xFF1A2632), CARD2(0xFF223244), WHITE(0xFFFFFFFF), HATCH(0xFF7FA6BD),
-    LIME(0xFFA6D86B), YEL(0xFFF2D16D), RED(0xFFF28A6D), PINK(0xFFD36DB0);
+    LIME(0xFFA6D86B), YEL(0xFFF2D16D), RED(0xFFF28A6D), PINK(0xFFD36DB0),
+
+    /** Intensité de la pluie, de très faible à très forte (bleu clair → bleu → bleu violet → violet → rose). */
+    RAIN0(0xFF9ADBF5), RAIN1(0xFF5BB0FF), RAIN2(0xFF7C8CFF), RAIN3(0xFFB26BFF), RAIN4(0xFFF25C9B);
 
     val c: Int = argb.toInt()
+}
+
+/** Échelle d'intensité de la pluie : bornes basses des 5 classes (même ordre que les couleurs) et unité affichée. */
+internal class RainScale(val unit: String, val lows: List<Double>)
+
+internal object RainColors {
+    private val RAMP = listOf(Hue.RAIN0, Hue.RAIN1, Hue.RAIN2, Hue.RAIN3, Hue.RAIN4)
+    private val WORDS = listOf("très faible", "faible", "modérée", "forte", "très forte")
+
+    /**
+     * 5 minutes et 1 heure : une intensité, en mm par heure (les pas de 5 min sont des débits, les barres horaires
+     * des cumuls d'une heure : même unité, donc même échelle). Repères usuels : bruine < 0,5 ; faible < 2,5 ;
+     * modérée < 7,5 ; forte < 20 ; au-delà, orage violent.
+     */
+    val RATE = RainScale("mm/h", listOf(0.1, 0.5, 2.5, 7.5, 20.0))
+
+    /** Journée : cumul sur 24 h, en mm (échelle bien plus large : 8 mm dans la journée, c'est une pluie modérée). */
+    val DAY = RainScale("mm/jour", listOf(0.1, 2.0, 8.0, 20.0, 40.0))
+
+    val ramp: List<Hue> get() = RAMP
+
+    private fun index(s: RainScale, v: Double): Int = s.lows.indexOfLast { v >= it }.coerceAtLeast(0)
+
+    fun hue(s: RainScale, v: Double): Hue = RAMP[index(s, v)]
+
+    fun word(s: RainScale, v: Double): String = WORDS[index(s, v)]
 }
 
 /** Un dessin : hauteur en dp et fonction qui dessine dans un canvas déjà mis à l'échelle (1 unité = 1 dp). */
@@ -374,7 +404,7 @@ object SheetCharts {
                 if (bar.mm <= 0.0) {
                     c.drawRoundRect(x, py, x + bw, py + hp, 3f, 3f, Gfx.fill(Hue.LINE))
                 } else when (bar.kind) {
-                    0 -> c.drawRoundRect(x, py, x + bw, py + hp, 3f, 3f, Gfx.fill(Hue.BLUE))
+                    0 -> c.drawRoundRect(x, py, x + bw, py + hp, 3f, 3f, Gfx.fill(RainColors.hue(RainColors.RATE, bar.mm)))
                     1 -> Gfx.hatchRect(c, x, py, bw, hp, 3f)
                     else -> c.drawRoundRect(x, py, x + bw, py + hp, 3f, 3f, Gfx.fill(Hue.SNOW))
                 }
@@ -388,7 +418,7 @@ object SheetCharts {
         }
     }
 
-    /** 60 prochaines minutes, pas de 5 min (valeur 1 mm/h = pleine hauteur). */
+    /** 60 prochaines minutes, pas de 5 min (1 mm/h = pleine hauteur, davantage si l'averse dépasse 1 mm/h) ; la couleur donne l'intensité. */
     fun nowcast(vals: List<Double>, left: String, mid: String, right: String): ChartMaker = ChartMaker { w ->
         val h = 62f
         val t = 6f
@@ -398,11 +428,12 @@ object SheetCharts {
             val slot = w / n
             val bw = 18f
             val ph = h - t - b
+            val top = max(1.0, vals.maxOrNull() ?: 0.0).toFloat()
             vals.forEachIndexed { i, v ->
-                val hp = if (v > 0.0) max(3f, ph * v.toFloat().coerceAtMost(1f)) else 2f
+                val hp = if (v > 0.0) max(3f, ph * (v.toFloat() / top)) else 2f
                 val x = slot * i + (slot - bw) / 2f
                 val py = t + ph - hp
-                c.drawRoundRect(x, py, x + bw, py + hp, 3f, 3f, Gfx.fill(if (v > 0.0) Hue.BLUE else Hue.LINE))
+                c.drawRoundRect(x, py, x + bw, py + hp, 3f, 3f, Gfx.fill(if (v > 0.0) RainColors.hue(RainColors.RATE, v) else Hue.LINE))
             }
             c.drawText(left, 2f, h - 3f, Gfx.text(Hue.MUTED, 10f))
             c.drawText(mid, slot * (n / 2) + slot / 2f, h - 3f, Gfx.text(Hue.MUTED, 10f, Paint.Align.CENTER))
@@ -426,7 +457,7 @@ object SheetCharts {
                 if (d.total > 0.0) {
                     val hp = max(4f, ph * (d.total / ymax).toFloat())
                     val top = t + ph - hp
-                    c.drawRoundRect(x, top, x + bw, top + hp, 4f, 4f, Gfx.fill(Hue.BLUE))
+                    c.drawRoundRect(x, top, x + bw, top + hp, 4f, 4f, Gfx.fill(RainColors.hue(RainColors.DAY, d.total)))
                     if (d.snow > 0.0) {
                         val sh = (hp * (d.snow / d.total)).toFloat().coerceAtLeast(8f).coerceAtMost(hp)
                         c.drawRoundRect(x, top, x + bw, top + sh, 4f, 4f, Gfx.fill(Hue.SNOW))
@@ -472,6 +503,30 @@ object SheetCharts {
             c.drawText("Lever $sunrise", xl, 106f, Gfx.text(Hue.TXT, 11f, Paint.Align.LEFT, true))
             c.drawText("Coucher $sunset", xr - 4f, 106f, Gfx.text(Hue.TXT, 11f, Paint.Align.RIGHT, true))
         }
+    }
+
+    /**
+     * Barre de couleurs de l'échelle d'intensité : 5 pastilles (6 dp), les bornes dessous, l'unité à droite.
+     * Dessinée à partir de (x, y) ; retourne le bord droit.
+     */
+    internal fun drawRamp(c: Canvas, scale: RainScale, x: Float, y: Float, stripW: Float): Float {
+        val ramp = RainColors.ramp
+        val cw = stripW / ramp.size
+        ramp.forEachIndexed { k, h ->
+            c.drawRoundRect(x + k * cw, y, x + (k + 1) * cw - 2f, y + 6f, 3f, 3f, Gfx.fill(h))
+        }
+        val lp = Gfx.text(Hue.MUTED, 9f, Paint.Align.CENTER)
+        for (k in 1 until ramp.size) {
+            val v = scale.lows[k]
+            c.drawText(Fmt.fr(v, if (v == Math.rint(v)) 0 else 1), x + k * cw - 1f, y + 17f, lp)
+        }
+        val up = Gfx.text(Hue.MUTED, 9f)
+        c.drawText(scale.unit, x + stripW + 4f, y + 7f, up)
+        return x + stripW + 4f + up.measureText(scale.unit)
+    }
+
+    internal fun ramp(scale: RainScale): ChartMaker = ChartMaker { w ->
+        Drawing(22f) { c -> drawRamp(c, scale, 0f, 0f, min(w - 56f, 250f).coerceAtLeast(100f)) }
     }
 
     /** Boussole de la fiche vent : la flèche indique où va le vent. */
