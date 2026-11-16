@@ -55,6 +55,15 @@ object OpenMeteoClient {
     @Volatile
     private var splitUntil = 0L
 
+    @Volatile
+    private var splitNote = ""
+
+    /** Variables refusées individuellement par le serveur (« h:nom » / « d:nom ») → fin de l'exclusion (ms). */
+    private val refused = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val REFUSED_TTL_MS = 3_600_000L
+
+    private fun isRefused(kind: String, name: String, now: Long): Boolean = (refused["$kind:$name"] ?: 0L) > now
+
     private val BASE_CURRENT = setOf("weather_code", "is_day")
     private val BASE_HOURLY = setOf("temperature_2m", "weather_code", "is_day", "precipitation_probability")
     private val BASE_DAILY = setOf("temperature_2m_max", "temperature_2m_min", "sunrise", "sunset")
@@ -102,9 +111,8 @@ object OpenMeteoClient {
                 when {
                     needs.hasForecastExtras && e.httpCode in SPLIT_CODES -> {
                         splitUntil = now + SPLIT_COOLDOWN_MS
-                        requestForecastSplit(loc, needs).also {
-                            it.put(NOTE_KEY, "requête complète refusée (HTTP ${e.httpCode}), prévisions demandées en plusieurs fois")
-                        }
+                        splitNote = "requête complète refusée (HTTP ${e.httpCode}), prévisions demandées en plusieurs fois"
+                        requestForecastSplit(loc, needs)
                     }
                     e.httpCode == 400 && needs.hasForecastExtras ->
                         requestForecast(loc, Needs.EMPTY.copy(days = needs.days)).also {
@@ -118,41 +126,67 @@ object OpenMeteoClient {
     }
 
     /**
-     * Mêmes prévisions, en requêtes de 6 variables au plus : la première porte les variables de base (indispensables),
-     * les suivantes les variables supplémentaires. Une requête supplémentaire refusée n'empêche pas les autres.
+     * Mêmes prévisions, en requêtes plus petites : d'abord les variables de base (indispensables), puis les
+     * variables supplémentaires par lots de 6. Si un lot est refusé par le serveur (403 / 400), ses variables sont
+     * essayées une par une : celles qui sont refusées sont écartées pendant 1 h et nommées dans la note du diagnostic.
      */
     private fun requestForecastSplit(loc: Location, needs: Needs): JSONObject {
-        val hExtra = (needs.hourly - BASE_HOURLY).sorted()
-        val dExtra = (needs.daily - BASE_DAILY).sorted()
-        val hourly = listOf(BASE_HOURLY.sorted() + hExtra.take(2)) + hExtra.drop(2).chunked(CHUNK)
-        val daily = listOf(BASE_DAILY.sorted() + dExtra.take(2)) + dExtra.drop(2).chunked(CHUNK)
-        val current = (BASE_CURRENT + needs.current).sorted()
-        var merged: JSONObject? = null
+        val now = System.currentTimeMillis()
+        val hourly = (needs.hourly - BASE_HOURLY).filter { !isRefused("h", it, now) }.sorted().chunked(CHUNK)
+        val daily = (needs.daily - BASE_DAILY).filter { !isRefused("d", it, now) }.sorted().chunked(CHUNK)
+
+        val first = builder("api.open-meteo.com", "v1/forecast", loc, false, needs.days)
+            .appendQueryParameter("current", (BASE_CURRENT + needs.current).sorted().joinToString(","))
+            .appendQueryParameter("hourly", BASE_HOURLY.sorted().joinToString(","))
+            .appendQueryParameter("daily", BASE_DAILY.sorted().joinToString(","))
+            .appendQueryParameter("minutely_15", "precipitation")
+        val merged = getJson(first.build().toString())
+
         var failed = 0
         var lastError: OpenMeteoException? = null
-        for (i in 0 until maxOf(hourly.size, daily.size)) {
-            val b = builder("api.open-meteo.com", "v1/forecast", loc, false, needs.days)
-            if (i == 0) {
-                b.appendQueryParameter("current", current.joinToString(","))
-                b.appendQueryParameter("minutely_15", "precipitation")
-            }
-            hourly.getOrNull(i)?.let { b.appendQueryParameter("hourly", it.joinToString(",")) }
-            daily.getOrNull(i)?.let { b.appendQueryParameter("daily", it.joinToString(",")) }
+        val total = maxOf(hourly.size, daily.size)
+        for (i in 0 until total) {
+            val h = hourly.getOrElse(i) { emptyList() }
+            val d = daily.getOrElse(i) { emptyList() }
             try {
-                val part = getJson(b.build().toString())
-                val base = merged
-                if (base == null) merged = part else mergeSections(base, part)
+                mergeSections(merged, getJson(extraUrl(loc, needs.days, h, d)))
             } catch (e: OpenMeteoException) {
-                if (i == 0) throw e
-                failed++
-                lastError = e
+                if (e.httpCode in SPLIT_CODES || e.httpCode == 400) {
+                    for (v in h) probe(loc, needs.days, merged, "h", v, now)
+                    for (v in d) probe(loc, needs.days, merged, "d", v, now)
+                } else {
+                    failed++
+                    lastError = e
+                }
             }
         }
-        val out = merged ?: throw OpenMeteoException("Open-Meteo indisponible", 0)
+
+        val active = (needs.hourly.filter { isRefused("h", it, now) } + needs.daily.filter { isRefused("d", it, now) }).distinct().sorted()
+        val notes = ArrayList<String>()
+        if (splitNote.isNotEmpty()) notes += splitNote
+        if (active.isNotEmpty()) notes += "variables refusées par le serveur, ignorées : " + active.joinToString(", ")
+        if (notes.isNotEmpty()) merged.put(NOTE_KEY, notes.joinToString(" · "))
         if (failed > 0) {
-            out.put(FALLBACK_KEY, "Prévisions partielles ($failed requête(s) sur ${maxOf(hourly.size, daily.size)} refusée(s)) : " + (lastError?.message ?: ""))
+            merged.put(FALLBACK_KEY, "Prévisions partielles ($failed requête(s) sur $total refusée(s)) : " + (lastError?.message ?: ""))
         }
-        return out
+        return merged
+    }
+
+    private fun extraUrl(loc: Location, days: Int, hourly: List<String>, daily: List<String>): String {
+        val b = builder("api.open-meteo.com", "v1/forecast", loc, false, days)
+        if (hourly.isNotEmpty()) b.appendQueryParameter("hourly", hourly.joinToString(","))
+        if (daily.isNotEmpty()) b.appendQueryParameter("daily", daily.joinToString(","))
+        return b.build().toString()
+    }
+
+    /** Une seule variable : fusionnée si le serveur l'accepte, écartée 1 h s'il la refuse. */
+    private fun probe(loc: Location, days: Int, into: JSONObject, kind: String, name: String, now: Long) {
+        try {
+            val url = extraUrl(loc, days, if (kind == "h") listOf(name) else emptyList(), if (kind == "d") listOf(name) else emptyList())
+            mergeSections(into, getJson(url))
+        } catch (e: OpenMeteoException) {
+            if (e.httpCode in SPLIT_CODES || e.httpCode == 400) refused["$kind:$name"] = now + REFUSED_TTL_MS
+        }
     }
 
     /** Ajoute à `into` les variables de `part` (séries et unités des sections current / hourly / daily). */
