@@ -121,7 +121,42 @@ internal object Bento {
 
     // ───────────────────────────── Polices ─────────────────────────────
 
-    private class Fonts(val regular: Typeface, val medium: Typeface, val bold: Typeface)
+    // Graisses (police variable DM Sans) : légères, pour un rendu moderne sur fond sombre.
+    private const val W_HERO = 360
+    private const val W_VAL = 500
+    private const val W_UNIT = 440
+    private const val W_LABEL = 440
+    private const val W_SUB = 400
+    private const val W_PLACE = 560
+    private const val W_STATUS = 420
+    private const val W_PILL = 540
+
+    /** DM Sans variable (axes graisse et taille optique), repli sur les 3 graisses fixes si le système ne sait pas la charger. */
+    private class Fonts(ctx: Context, val regular: Typeface, val medium: Typeface, val bold: Typeface) {
+        private val assets = ctx.applicationContext.assets
+        private val cache = HashMap<Int, Typeface>()
+
+        fun face(wght: Int, size: Float): Typeface {
+            val opsz = size.roundToInt().coerceIn(9, 40)
+            return synchronized(cache) { cache.getOrPut(wght * 100 + opsz) { build(wght, opsz) } }
+        }
+
+        private fun build(wght: Int, opsz: Int): Typeface {
+            try {
+                val t = Typeface.Builder(assets, "fonts/DMSans-Variable.ttf")
+                    .setFontVariationSettings("'wght' $wght, 'opsz' $opsz")
+                    .build()
+                if (t != null) return t
+            } catch (e: Exception) {
+                // repli ci-dessous
+            }
+            return if (wght < 450) regular else if (wght < 600) medium else bold
+        }
+    }
+
+    /** Peinture de texte dans la graisse demandée. */
+    private fun tw(f: Fonts, wght: Int, color: Int, size: Float, align: Paint.Align = Paint.Align.LEFT, spacing: Float = 0f): Paint =
+        tp(f.face(wght, size), color, size, align, spacing)
 
     @Volatile
     private var cache: Fonts? = null
@@ -129,6 +164,7 @@ internal object Bento {
     private fun fonts(ctx: Context): Fonts {
         cache?.let { return it }
         val loaded = Fonts(
+            ctx,
             load(ctx, R.font.dmsans_regular, Typeface.DEFAULT),
             load(ctx, R.font.dmsans_medium, Typeface.create("sans-serif-medium", Typeface.NORMAL)),
             load(ctx, R.font.dmsans_bold, Typeface.DEFAULT_BOLD),
@@ -247,7 +283,7 @@ internal object Bento {
         var layout: PillLayout? = null
         var rect: RectF? = null
         if (showHeader && pill != null) {
-            val placeW = tp(f.bold, 0, 13f).measureText(place + (if (status.text.isNotEmpty()) " · " + status.text else ""))
+            val placeW = tw(f, W_PLACE, 0, 13f).measureText(place + (if (status.text.isNotEmpty()) " · " + status.text else ""))
             val maxW = w - SHORT_HEADER_H - 8f - placeW - 14f
             if (maxW >= 90f) {
                 layout = pillLayout(f, pill.text, SHORT_PILL_H, maxW)
@@ -272,12 +308,12 @@ internal object Bento {
         val padR = if (big) 10f else 8f
         val ic = if (big) 14f else 12f
         var size = if (big) 11.5f else 10.5f
-        fun width(t: String, s: Float) = padL + ic + 5f + tp(f.bold, 0, s).measureText(t) + padR
+        fun width(t: String, s: Float) = padL + ic + 5f + tw(f, W_PILL, 0, s).measureText(t) + padR
         var t = text
         while (width(t, size) > maxW && size > 9.5f) size -= 0.5f
         if (width(t, size) > maxW) {
             val avail = maxW - (padL + ic + 5f + padR) - 8f
-            val n = tp(f.bold, 0, size).breakText(t, true, max(10f, avail), null)
+            val n = tw(f, W_PILL, 0, size).breakText(t, true, max(10f, avail), null)
             t = t.take(n).trimEnd() + "…"
         }
         return PillLayout(t, size, width(t, size), h)
@@ -352,7 +388,7 @@ internal object Bento {
                 }
             }
         } catch (e: Exception) {
-            c.drawText("Données indisponibles", 4f, 16f, tp(g.f.regular, MUT, 12f))
+            c.drawText("Données indisponibles", 4f, 16f, tw(g.f, W_SUB, MUT, 12f))
         }
         return bmp
     }
@@ -366,12 +402,12 @@ internal object Bento {
         val base = hh / 2f + 0.36f * size
         var x = 4f
         if (plan.place.isNotEmpty()) {
-            val pp = tp(f.bold, TXT, size)
+            val pp = tw(f, W_PLACE, TXT, size)
             c.drawText(plan.place, x, base, pp)
             x += pp.measureText(plan.place)
         }
         val tail = if (plan.place.isNotEmpty() && plan.status.isNotEmpty()) " · " + plan.status else plan.status
-        if (tail.isNotEmpty()) c.drawText(tail, x, base, tp(f.medium, if (plan.warn) WARN else MUT, size))
+        if (tail.isNotEmpty()) c.drawText(tail, x, base, tw(f, W_STATUS, if (plan.warn) WARN else MUT, size))
 
         // Pastille d'alerte dans l'en-tête (format bas seulement : dans la grille, elle est dans le héros).
         if (plan.short && plan.pill != null && plan.pillLayout != null && plan.pillRect != null) {
@@ -394,7 +430,7 @@ internal object Bento {
         val ic = if (big) 14f else 12f
         val padL = if (big) 9f else 7f
         g.icon(if (p.rain) R.drawable.ic_cloud_rain else R.drawable.ic_check, r.left + padL + ic / 2f, r.centerY(), ic, ink)
-        c.drawText(l.text, r.left + padL + ic + 5f, r.centerY() + 0.36f * l.size, tp(g.f.bold, ink, l.size))
+        c.drawText(l.text, r.left + padL + ic + 5f, r.centerY() + 0.36f * l.size, tw(g.f, W_PILL, ink, l.size))
     }
 
     private fun hero(g: Gx, plan: BentoPlan, cell: BentoCell) {
@@ -409,7 +445,7 @@ internal object Bento {
 
         // Libellé.
         g.icon(s.icon, x + 12f + 7f, y + 11f + 7f, 14f, ink)
-        c.drawText(s.label, x + 12f + 14f + 6f, y + 11f + 7f + 0.36f * 12f, tp(f.medium, ink, 12f))
+        c.drawText(s.label, x + 12f + 14f + 6f, y + 11f + 7f + 0.36f * 12f, tw(f, W_LABEL, ink, 12f))
 
         // Grande température.
         val hasPill = plan.pillRect != null
@@ -417,19 +453,19 @@ internal object Bento {
         val cap = min(46f, max(20f, avail))
         val ts = cap / 0.7f
         val tempColor = TempColors.forTemp(s.colorTemp, false, androidx.compose.ui.graphics.Color(ink)).toArgb()
-        val vp = tp(f.bold, tempColor, ts, spacing = -0.05f)
+        val vp = tw(f, W_HERO, tempColor, ts, spacing = -0.035f)
         val top = y + 31f
         c.drawText(s.value, x + 12f, top + cap, vp)
         val vw = vp.measureText(s.value)
         var endX = x + 12f + vw
         if (s.unit.isNotEmpty()) {
             val ds = ts * 0.5f
-            c.drawText(s.unit, endX + 1f, top + 0.7f * ds, tp(f.bold, tempColor, ds))
-            endX += 1f + tp(f.bold, tempColor, ds).measureText(s.unit)
+            c.drawText(s.unit, endX + 1f, top + 0.7f * ds, tw(f, W_HERO, tempColor, ds))
+            endX += 1f + tw(f, W_HERO, tempColor, ds).measureText(s.unit)
         }
         if (s.trend == 1 || s.trend == -1) {
             val col = if (s.trend == 1) argb(0xFFFDBA74) else argb(0xFF7CC0FF)
-            c.drawText(if (s.trend == 1) "▲" else "▼", endX + 4f, top + 12f, tp(f.medium, col, 11f))
+            c.drawText(if (s.trend == 1) "▲" else "▼", endX + 4f, top + 12f, tw(f, W_VAL, col, 11f))
         }
 
         // Max / min / ressenti à droite.
@@ -437,9 +473,9 @@ internal object Bento {
         val right = x + cell.w - 12f
         s.side.take(3).forEachIndexed { n, (label, value) ->
             val base = sideTop + 12.5f + n * 16f
-            val valuePaint = tp(f.bold, ink, 12f, Paint.Align.RIGHT)
+            val valuePaint = tw(f, W_VAL, ink, 12f, Paint.Align.RIGHT)
             c.drawText(value, right, base, valuePaint)
-            c.drawText(label, right - valuePaint.measureText(value) - 4f, base, tp(f.regular, alpha(ink, 0.85f), 12f, Paint.Align.RIGHT))
+            c.drawText(label, right - valuePaint.measureText(value) - 4f, base, tw(f, W_SUB, alpha(ink, 0.85f), 12f, Paint.Align.RIGHT))
         }
 
         // Pastille d'alerte en bas du héros.
@@ -469,8 +505,8 @@ internal object Bento {
         val cy = y + padV + 6.5f
         g.icon(s.icon, x + padH + 6.5f, cy, 13f, ink)
         val labelX = x + padH + 13f + 5f
-        c.drawText(s.label, labelX, cy + 0.36f * 11.5f, tp(f.medium, ink, 11.5f))
-        val labelEnd = labelX + tp(f.medium, ink, 11.5f).measureText(s.label)
+        c.drawText(s.label, labelX, cy + 0.36f * 11.5f, tw(f, W_LABEL, ink, 11.5f))
+        val labelEnd = labelX + tw(f, W_LABEL, ink, 11.5f).measureText(s.label)
         val rightX = x + w - padH
 
         // Repère à droite du libellé.
@@ -485,8 +521,8 @@ internal object Bento {
         // Valeur et sous-ligne.
         val vsBase = (h * 0.31f).coerceIn(16.5f, 21.5f)
         var vs = vsBase
-        val vp = tp(f.bold, ink, vs, spacing = -0.03f)
-        val up = tp(f.bold, ink, 12f)
+        val vp = tw(f, W_VAL, ink, vs, spacing = -0.015f)
+        val up = tw(f, W_UNIT, ink, 12f)
         val inner = w - 2f * padH
         fun total() = vp.measureText(s.value) + if (s.unit.isNotEmpty()) 3f + up.measureText(s.unit) else 0f
         while (total() > inner && vs > 14f) {
@@ -503,7 +539,7 @@ internal object Bento {
         if (s.unit.isNotEmpty()) c.drawText(s.unit, x + padH + vp.measureText(s.value) + 3f, vBase, up)
         val subBase = min(vBase + gap + subCap, y + h - 3f)
         if (s.sub.isNotEmpty()) {
-            val sp = tp(f.medium, alpha(ink, 0.88f), 11f)
+            val sp = tw(f, W_SUB, alpha(ink, 0.88f), 11f)
             fit(sp, s.sub, inner, 9.5f)
             c.drawText(ellipsize(sp, s.sub, inner), x + padH, subBase, sp)
         }
@@ -627,10 +663,10 @@ internal object Bento {
             g.icon(s.icon, cx, y + 7f, 14f, t.ink)
             y += 17f
         }
-        val vp = tp(f.bold, t.ink, 12.5f, Paint.Align.CENTER)
+        val vp = tw(f, W_VAL, t.ink, 12.5f, Paint.Align.CENTER)
         fit(vp, text, cell.w - 6f, 9f)
         c.drawText(text, cx, y + 9f, vp)
-        val lp = tp(f.regular, alpha(t.ink, 0.85f), 8.5f, Paint.Align.CENTER)
+        val lp = tw(f, W_SUB, alpha(t.ink, 0.85f), 8.5f, Paint.Align.CENTER)
         fit(lp, s.short, cell.w - 4f, 7f)
         c.drawText(s.short, cx, y + 9f + 2f + 7f, lp)
     }
