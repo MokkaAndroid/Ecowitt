@@ -132,7 +132,7 @@ private fun diagnostics(ctx: Context): List<Pair<String, Boolean>> {
     out += when {
         Storage.location(ctx) == null -> "Prévisions Open-Meteo : position non définie" to false
         fcErr != null -> "Prévisions Open-Meteo : échec · $fcErr" to false
-        fcAt > 0 -> "Prévisions Open-Meteo : OK à ${clock(fcAt)}" to true
+        fcAt > 0 -> ("Prévisions Open-Meteo : OK à ${clock(fcAt)}" + (Storage.forecastNote(ctx)?.let { " · $it" } ?: "")) to true
         else -> "Prévisions Open-Meteo : pas encore chargées" to false
     }
 

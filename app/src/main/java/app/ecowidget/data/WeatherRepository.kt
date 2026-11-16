@@ -160,7 +160,8 @@ object WeatherRepository {
                 val json = OpenMeteoClient.fetchForecast(loc, needs)
                 Storage.saveForecast(app, json.toString(), now, sig)
                 val fallback = json.optString(OpenMeteoClient.FALLBACK_KEY).takeIf { it.isNotBlank() }
-                Storage.saveForecastError(app, fallback?.let { "Variable refusée par Open-Meteo, infos de base seulement : $it" })
+                Storage.saveForecastError(app, fallback)
+                Storage.saveForecastNote(app, json.optString(OpenMeteoClient.NOTE_KEY).takeIf { it.isNotBlank() })
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -379,6 +379,11 @@ object Storage {
 
     fun saveForecastError(ctx: Context, message: String?) = putOrRemove(ctx, "forecast_error", message)
 
+    /** Information (pas une erreur) sur la dernière récupération des prévisions, par exemple « demandées en plusieurs fois ». */
+    fun forecastNote(ctx: Context): String? = plain(ctx).getString("forecast_note", null)
+
+    fun saveForecastNote(ctx: Context, message: String?) = putOrRemove(ctx, "forecast_note", message)
+
     fun nowcastRaw(ctx: Context): String? = plain(ctx).getString("nowcast_raw", null)
     fun nowcastAt(ctx: Context): Long = plain(ctx).getLong("nowcast_at", 0L)
     fun nowcastError(ctx: Context): String? = plain(ctx).getString("nowcast_error", null)
