@@ -131,9 +131,11 @@ internal fun CompactBody(
     val padX = if (openTile == null) Bento.PAD else PAD_X.toFloat()
     val padY = if (openTile == null) Bento.PAD else PAD_Y.toFloat()
     val plan = if (snap != null && openTile == null) {
+        val obsMs = snap.observedAtSec?.times(1000) ?: state.fetchedAtMs
+        val ageMin = if (obsMs > 0) ((System.currentTimeMillis() - obsMs) / 60_000).toInt().coerceAtLeast(0) else null
         Bento.plan(
-            ctx, inputs, DetailBuilder.summaries(inputs), statusOf(state, config.showTime), place,
-            size.width.value - 2f * Bento.PAD, size.height.value - 2f * Bento.PAD,
+            ctx, inputs, statusOf(state, config.showTime), place,
+            size.width.value - 2f * Bento.PAD, size.height.value - 2f * Bento.PAD, ageMin,
         )
     } else {
         null

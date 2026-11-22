@@ -23,11 +23,13 @@ import androidx.glance.layout.width
 import androidx.glance.semantics.contentDescription
 import androidx.glance.semantics.semantics
 import app.ecowidget.data.Tile
-import app.ecowidget.data.TileSummary
 
 /**
  * Widget « Bento sombre » : le dessin (bitmap) est posé en fond, des zones transparentes cliquables
  * sont posées par-dessus aux mêmes coordonnées (même plan `BentoPlan`).
+ *
+ * Chaque tuile a sa propre couche (colonne + rangée d'espaceurs + zone) : les couches ne captent pas les appuis,
+ * seules les zones le font. Les couches sont regroupées par 8 pour rester sous la limite de 10 enfants par conteneur.
  */
 @Composable
 internal fun BentoView(appWidgetId: Int, inlineMode: Boolean, plan: BentoPlan, bitmap: Bitmap) {
@@ -38,9 +40,19 @@ internal fun BentoView(appWidgetId: Int, inlineMode: Boolean, plan: BentoPlan, b
             modifier = GlanceModifier.fillMaxSize(),
             contentScale = ContentScale.FillBounds,
         )
-        if (plan.short) ShortZones(appWidgetId, inlineMode, plan) else GridZones(appWidgetId, inlineMode, plan)
+        HeaderZones(appWidgetId, inlineMode, plan)
+        val cells = if (plan.short) plan.cells.mapIndexed { k, c -> if (k < plan.cells.size - 1) widen(c, 4f) else c } else plan.cells
+        cells.chunked(8).forEach { chunk ->
+            Box(modifier = GlanceModifier.fillMaxSize()) {
+                chunk.forEach { cell -> CellLayer(appWidgetId, inlineMode, cell) }
+            }
+        }
     }
 }
+
+/** Zone de la tuile élargie de `extra` dp à droite (pour que l'appui ne tombe jamais dans l'écart qui la suit). */
+private fun widen(c: BCell, extra: Float): BCell =
+    BCell(c.kind, c.x, c.y, c.w + extra, c.h, c.spanC, c.spanR, c.tile, c.tab, c.desc, c.d, c.s)
 
 /** Ouvre le détail d'un sujet : dans le widget (mode « Tuiles + détail ») ou en fiche plein écran. */
 @Composable
@@ -51,11 +63,6 @@ private fun tileAction(appWidgetId: Int, inlineMode: Boolean, tile: Tile, tab: I
         detailAction(tile.id, tab, appWidgetId)
     }
 
-private fun describe(s: TileSummary): String {
-    val sub = if (s.sub.isNotEmpty()) ", " + s.sub else ""
-    return s.label + " : " + s.valueText() + sub
-}
-
 /** Zone transparente de `w` × `h` dp. */
 @Composable
 private fun Zone(w: Float, h: Float, desc: String, action: Action?) {
@@ -65,116 +72,33 @@ private fun Zone(w: Float, h: Float, desc: String, action: Action?) {
 }
 
 @Composable
-private fun CellZone(appWidgetId: Int, inlineMode: Boolean, cell: BentoCell?, w: Float, h: Float) {
-    if (cell == null) {
-        Spacer(modifier = GlanceModifier.width(w.dp).height(h.dp))
-    } else {
-        Zone(w, h, describe(cell.s), tileAction(appWidgetId, inlineMode, cell.s.tile, cell.s.tab))
-    }
-}
-
-@Composable
-private fun GridZones(appWidgetId: Int, inlineMode: Boolean, plan: BentoPlan) {
-    val gap = plan.gap
-    val hero = plan.cell(BentoKey.HERO)
-    val colW = (plan.w - 2f * gap) / 3f
-    val rowH = if (hero != null) (hero.h - gap) / 2f else (plan.h - plan.headerH - gap - (plan.rows - 1) * gap) / plan.rows
-    fun cell(k: BentoKey) = plan.cell(k)
-
+private fun CellLayer(appWidgetId: Int, inlineMode: Boolean, cell: BCell) {
+    val tile = cell.tile
+    val action: Action = if (tile != null) tileAction(appWidgetId, inlineMode, tile, cell.tab) else actionRunCallback<RefreshCallback>()
     Column(modifier = GlanceModifier.fillMaxSize()) {
-        Row(modifier = GlanceModifier.fillMaxWidth().height(plan.headerH.dp)) {
-            Spacer(modifier = GlanceModifier.defaultWeight())
-            Zone(plan.refresh.width(), plan.refresh.height(), "Actualiser", actionRunCallback<RefreshCallback>())
-        }
-        Spacer(modifier = GlanceModifier.height(gap.dp))
-
-        // Héros (2 × 2) et, à droite, Prévision et Pluie.
-        Row(modifier = GlanceModifier.fillMaxWidth().height((2f * rowH + gap).dp)) {
-            if (hero != null) {
-                Box(modifier = GlanceModifier.width(hero.w.dp).height(hero.h.dp)) {
-                    Zone(hero.w, hero.h, describe(hero.s), tileAction(appWidgetId, inlineMode, hero.s.tile, hero.s.tab))
-                    val pr = plan.pillRect
-                    val pill = plan.pill
-                    if (pr != null && pill != null) {
-                        Column(modifier = GlanceModifier.fillMaxSize()) {
-                            Spacer(modifier = GlanceModifier.height((pr.top - hero.y).dp))
-                            Row {
-                                Spacer(modifier = GlanceModifier.width((pr.left - hero.x).dp))
-                                Zone(pr.width(), pr.height(), pill.text, tileAction(appWidgetId, inlineMode, Tile.RAIN, 1))
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = GlanceModifier.width(gap.dp))
-            } else {
-                Spacer(modifier = GlanceModifier.width((2f * colW + 2f * gap).dp))
-            }
-            Column {
-                CellZone(appWidgetId, inlineMode, cell(BentoKey.PREV), colW, rowH)
-                Spacer(modifier = GlanceModifier.height(gap.dp))
-                CellZone(appWidgetId, inlineMode, cell(BentoKey.RAIN), colW, rowH)
-            }
-        }
-
-        // Vent, Humidité, Pression.
-        Spacer(modifier = GlanceModifier.height(gap.dp))
-        Row(modifier = GlanceModifier.fillMaxWidth()) {
-            CellZone(appWidgetId, inlineMode, cell(BentoKey.WIND), colW, rowH)
-            Spacer(modifier = GlanceModifier.width(gap.dp))
-            CellZone(appWidgetId, inlineMode, cell(BentoKey.HUM), colW, rowH)
-            Spacer(modifier = GlanceModifier.width(gap.dp))
-            CellZone(appWidgetId, inlineMode, cell(BentoKey.PRESS), colW, rowH)
-        }
-
-        // Limite neige, Demain, Soleil.
-        if (plan.rows >= 4) {
-            Spacer(modifier = GlanceModifier.height(gap.dp))
-            Row(modifier = GlanceModifier.fillMaxWidth()) {
-                CellZone(appWidgetId, inlineMode, cell(BentoKey.SNOW), colW, rowH)
-                Spacer(modifier = GlanceModifier.width(gap.dp))
-                CellZone(appWidgetId, inlineMode, cell(BentoKey.TOM), colW, rowH)
-                Spacer(modifier = GlanceModifier.width(gap.dp))
-                CellZone(appWidgetId, inlineMode, cell(BentoKey.SUN), colW, rowH)
-            }
-        }
-
-        // Air (double largeur) et Intérieur.
-        if (plan.rows >= 5) {
-            Spacer(modifier = GlanceModifier.height(gap.dp))
-            Row(modifier = GlanceModifier.fillMaxWidth()) {
-                CellZone(appWidgetId, inlineMode, cell(BentoKey.AIR), 2f * colW + gap, rowH)
-                Spacer(modifier = GlanceModifier.width(gap.dp))
-                CellZone(appWidgetId, inlineMode, cell(BentoKey.HOME), colW, rowH)
-            }
+        if (cell.y > 0.5f) Spacer(modifier = GlanceModifier.height(cell.y.dp))
+        Row {
+            if (cell.x > 0.5f) Spacer(modifier = GlanceModifier.width(cell.x.dp))
+            Zone(cell.w, cell.h, cell.desc, action)
         }
     }
 }
 
+/** En-tête : zone de la pastille (ouvre la fiche Pluie) et bouton Actualiser. */
 @Composable
-private fun ShortZones(appWidgetId: Int, inlineMode: Boolean, plan: BentoPlan) {
-    Column(modifier = GlanceModifier.fillMaxSize()) {
-        if (plan.headerH > 0f) {
-            Row(
-                modifier = GlanceModifier.fillMaxWidth().height(plan.headerH.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spacer(modifier = GlanceModifier.defaultWeight())
-                val pr = plan.pillRect
-                val pill = plan.pill
-                if (pr != null && pill != null) {
-                    Zone(pr.width(), pr.height(), pill.text, tileAction(appWidgetId, inlineMode, Tile.RAIN, 1))
-                    Spacer(modifier = GlanceModifier.width((plan.refresh.left - pr.right).coerceAtLeast(0f).dp))
-                }
-                Zone(plan.refresh.width(), plan.refresh.height(), "Actualiser", actionRunCallback<RefreshCallback>())
-            }
-            Spacer(modifier = GlanceModifier.height(plan.gap.dp))
+private fun HeaderZones(appWidgetId: Int, inlineMode: Boolean, plan: BentoPlan) {
+    if (plan.headerH <= 0f) return
+    Row(
+        modifier = GlanceModifier.fillMaxWidth().height(plan.headerH.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Spacer(modifier = GlanceModifier.defaultWeight())
+        val pr = plan.pillRect
+        val pill = plan.pill
+        if (pr != null && pill != null) {
+            Zone(pr.width(), pr.height(), pill.text, tileAction(appWidgetId, inlineMode, Tile.RAIN, 1))
+            Spacer(modifier = GlanceModifier.width((plan.refresh.left - pr.right).coerceAtLeast(0f).dp))
         }
-        Row(modifier = GlanceModifier.fillMaxWidth()) {
-            plan.cells.forEachIndexed { k, cell ->
-                // Chaque zone englobe l'écart de 4 dp qui la suit, pour que l'appui ne tombe jamais dans un trou.
-                val w = if (k < plan.cells.size - 1) cell.w + 4f else cell.w
-                Zone(w, cell.h, describe(cell.s), tileAction(appWidgetId, inlineMode, cell.s.tile, cell.s.tab))
-            }
-        }
+        Zone(plan.refresh.width(), plan.refresh.height(), "Actualiser", actionRunCallback<RefreshCallback>())
     }
 }
