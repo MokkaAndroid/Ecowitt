@@ -295,6 +295,18 @@ object OpenMeteoClient {
         return out
     }
 
+    /**
+     * Prévisions passées d'un modèle (API « Previous Runs ») : valeur du dernier run et valeur prévue la veille,
+     * pour la température et la pluie horaire, sur les `pastDays` derniers jours. Une requête par modèle.
+     */
+    fun fetchPreviousRuns(loc: Location, model: String, pastDays: Int): JSONObject {
+        val b = builder("previous-runs-api.open-meteo.com", "v1/forecast", loc, true, 1)
+            .appendQueryParameter("past_days", pastDays.toString())
+            .appendQueryParameter("hourly", "temperature_2m,precipitation,temperature_2m_previous_day1,precipitation_previous_day1")
+            .appendQueryParameter("models", model)
+        return getJson(b.build().toString())
+    }
+
     private fun getJson(url: String): JSONObject {
         val conn = URL(url).openConnection() as HttpsURLConnection
         try {

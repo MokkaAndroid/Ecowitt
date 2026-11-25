@@ -84,6 +84,23 @@ object EcowittClient {
         throw last ?: ApiException("Historique indisponible")
     }
 
+    /**
+     * Historique brut sur une plage (résolution 30 min), pour comparer les prévisions aux mesures.
+     * `groups` : groupes demandés (ex. « outdoor,rainfall »). Pluie en mm, température en °C.
+     */
+    fun fetchHistoryRange(c: Credentials, startSec: Long, endSec: Long, groups: String): JSONObject {
+        val zone = ZoneId.systemDefault()
+        val params = mapOf(
+            "start_date" to DATE_FORMAT.format(Instant.ofEpochSecond(startSec).atZone(zone)),
+            "end_date" to DATE_FORMAT.format(Instant.ofEpochSecond(endSec).atZone(zone)),
+            "cycle_type" to "30min",
+            "call_back" to groups,
+            "temp_unitid" to "1",
+            "rainfall_unitid" to "12",
+        )
+        return get(path = "api/v3/device/history", creds = c, withMac = true, params = params)
+    }
+
     private const val BASE_GROUPS = "outdoor,pressure"
     private const val EXT_GROUPS = "outdoor,pressure,wind,rainfall,indoor"
 

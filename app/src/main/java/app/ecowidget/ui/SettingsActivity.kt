@@ -52,6 +52,7 @@ import app.ecowidget.data.HistoryParser
 import app.ecowidget.data.Location
 import app.ecowidget.data.Metric
 import app.ecowidget.data.MeteoFranceClient
+import app.ecowidget.data.ModelCheck
 import app.ecowidget.data.OpenMeteoClient
 import app.ecowidget.data.Place
 import app.ecowidget.data.SnapshotParser
@@ -779,6 +780,28 @@ private fun SettingsScreen(tick: Int) {
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (probing) "Test en cours…" else "Tester la limite pluie / neige (modèles)") }
                 snowProbe?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                }
+                var modelCheck by remember { mutableStateOf<List<String>?>(null) }
+                var checking by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    enabled = !checking && location != null && credsOk,
+                    onClick = {
+                        location?.let { loc ->
+                            checking = true
+                            val creds = Credentials(appKey, apiKey, Credentials.normalizeMac(mac))
+                            scope.launch {
+                                modelCheck = withContext(Dispatchers.IO) {
+                                    runCatching { ModelCheck.run(creds, loc) }
+                                        .getOrElse { listOf(OpenMeteoClient.describe(it)) }
+                                }
+                                checking = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (checking) "Comparaison en cours…" else "Comparer les modèles aux mesures (pluie, température)") }
+                modelCheck?.forEach { line ->
                     Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                 }
             }
