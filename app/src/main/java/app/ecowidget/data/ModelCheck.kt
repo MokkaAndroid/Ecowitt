@@ -28,19 +28,22 @@ object ModelCheck {
 
     private class Result(val label: String, val lead: String, val n: Int, val line: String, val csi: Double?, val mae: Double?)
 
-    fun run(c: Credentials, loc: Location): List<String> {
+    /** Profondeurs proposées (jours). */
+    val DEPTHS = listOf(7, 14, 30, 60)
+
+    fun run(c: Credentials, loc: Location, days: Int = 7): List<String> {
         val now = System.currentTimeMillis() / 1000
         val st = try {
-            fetchStation(c, now)
+            fetchStation(c, now, days)
         } catch (e: Exception) {
             return listOf("Historique station indisponible : " + EcowittClient.describe(e))
         }
-        val pastDays = kotlin.math.ceil(st.days).toInt().coerceIn(2, 7)
+        val pastDays = kotlin.math.ceil(st.days).toInt().coerceIn(2, 90)
         val out = ArrayList<String>()
         val rainTotal = st.rain?.values?.sum()
         val rainHours = st.rain?.values?.count { it >= WET }
         out.add(
-            "Période : " + fmt(st.days, 1) + " j · station : " +
+            "Période : " + fmt(st.days, 1) + " j" + (if (st.days < days - 1.0) " (demandé : $days j, l'historique Ecowitt s'arrête avant)" else "") + " · station : " +
                 (if (rainTotal != null) fmt(rainTotal, 1) + " mm, " + rainHours + " h de pluie" else "pluie indisponible") +
                 " · « veille » = prévu environ 24 h avant",
         )
@@ -70,23 +73,54 @@ object ModelCheck {
         return out
     }
 
-    private fun fetchStation(c: Credentials, now: Long): Station {
-        var last: Exception? = null
-        for (days in listOf(6.5, 3.0, 2.0)) {
-            val start = now - (days * 86400).toLong()
-            for (groups in listOf("outdoor,rainfall,rainfall_piezo", "outdoor,rainfall", "outdoor,rainfall_piezo", "outdoor")) {
-                try {
-                    val data = EcowittClient.fetchHistoryRange(c, start, now + 3600, groups)
-                    return parseStation(data, days)
-                } catch (e: Exception) {
-                    last = e
+    /** L'API Ecowitt limite la plage d'une requête (30 min : ~7 jours) : on découpe en tranches de 6 jours qui se recouvrent d'1 h. */
+    private const val CHUNK_SEC = 6 * 86400L
+    private const val PAUSE_MS = 1_100L
+
+    private fun fetchStation(c: Credentials, now: Long, days: Int): Station {
+        val limitStart = now - days * 86400L
+        val temp = HashMap<Long, Double>()
+        val rain = HashMap<Long, Double>()
+        var groups: String? = null
+        var end = now + 3600
+        var k = 0
+        while (end > limitStart + 3600) {
+            val start = maxOf(limitStart, end - CHUNK_SEC - 3600)
+            try {
+                val part: Station
+                if (groups == null) {
+                    var found: Station? = null
+                    var last: Exception? = null
+                    for (g in listOf("outdoor,rainfall,rainfall_piezo", "outdoor,rainfall", "outdoor,rainfall_piezo", "outdoor")) {
+                        try {
+                            found = parseStation(EcowittClient.fetchHistoryRange(c, start, end, g))
+                            groups = g
+                            break
+                        } catch (e: Exception) {
+                            last = e
+                        }
+                    }
+                    part = found ?: throw (last ?: EcowittClient.ApiException("Historique indisponible"))
+                } else {
+                    Thread.sleep(PAUSE_MS)
+                    part = parseStation(EcowittClient.fetchHistoryRange(c, start, end, groups))
                 }
+                temp.putAll(part.temp)
+                part.rain?.let { rain.putAll(it) }
+            } catch (e: Exception) {
+                // Première tranche en échec : rien à comparer. Sinon on garde ce qu'on a (l'historique s'arrête là).
+                if (k == 0) throw e
+                break
             }
+            end = start + 3600
+            k++
         }
-        throw last ?: EcowittClient.ApiException("Historique indisponible")
+        if (temp.isEmpty()) throw EcowittClient.ApiException("Aucune température dans l'historique")
+        val spanDays = (now - temp.keys.min()) / 86400.0
+        return Station(temp, rain.takeIf { it.isNotEmpty() }, minOf(spanDays, days.toDouble()))
     }
 
-    private fun parseStation(data: JSONObject, days: Double): Station {
+    private fun parseStation(data: JSONObject): Station {
         val temp = HistoryParser.series(data, "outdoor", "temperature")
         if (temp.isEmpty()) throw EcowittClient.ApiException("Aucune température dans l'historique")
         // Pluie : cumul du jour (remis à zéro à minuit), la série qui a le plus plu est la bonne sonde.
@@ -110,7 +144,7 @@ object ModelCheck {
                 rMap[hr * HOUR] = if (d < -0.05) a else d.coerceAtLeast(0.0)
             }
         }
-        return Station(tMap, rMap, days)
+        return Station(tMap, rMap, 0.0)
     }
 
     /** Valeur la plus proche de `t` à moins de `tolSec`, ou null. */

@@ -784,6 +784,13 @@ private fun SettingsScreen(tick: Int) {
                 }
                 var modelCheck by remember { mutableStateOf<List<String>?>(null) }
                 var checking by remember { mutableStateOf(false) }
+                var depth by remember { mutableStateOf(ModelCheck.DEPTHS.first()) }
+                Text("Profondeur de la comparaison", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ModelCheck.DEPTHS.forEach { d ->
+                        FilterChip(selected = depth == d, onClick = { depth = d }, label = { Text("$d j") })
+                    }
+                }
                 OutlinedButton(
                     enabled = !checking && location != null && credsOk,
                     onClick = {
@@ -792,7 +799,7 @@ private fun SettingsScreen(tick: Int) {
                             val creds = Credentials(appKey, apiKey, Credentials.normalizeMac(mac))
                             scope.launch {
                                 modelCheck = withContext(Dispatchers.IO) {
-                                    runCatching { ModelCheck.run(creds, loc) }
+                                    runCatching { ModelCheck.run(creds, loc, depth) }
                                         .getOrElse { listOf(OpenMeteoClient.describe(it)) }
                                 }
                                 checking = false
@@ -800,7 +807,7 @@ private fun SettingsScreen(tick: Int) {
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (checking) "Comparaison en cours…" else "Comparer les modèles aux mesures (pluie, température)") }
+                ) { Text(if (checking) "Comparaison en cours (jusqu'à 1 min)…" else "Comparer les modèles aux mesures (pluie, température)") }
                 modelCheck?.forEach { line ->
                     Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                 }
