@@ -121,9 +121,12 @@ object ModelLeadCheck {
     class RainRow(val model: String, val pod: Double?, val fn: Double?, val fp: Double?, val csiTol: Double?, val csi: Double?, val ratio: Double?)
     class TempRow(val model: String, val mae: Double, val bias: Double, val biasDay: Double?, val biasNight: Double?)
     class LeadBlock(val label: String, val wet: Int, val rain: List<RainRow>, val temp: List<TempRow>)
-    class LeadReport(val notes: List<String>, val blocks: List<LeadBlock>)
+    class LeadReport(val notes: List<String>, val blocks: List<LeadBlock>, val csv: java.io.File? = null)
 
     private val acc = ConcurrentHashMap<String, Acc>()
+
+    /** Une ligne par heure comparée (pour l'export CSV). */
+    private val csvRows = java.util.concurrent.ConcurrentLinkedQueue<String>()
 
     private fun accOf(model: String, lead: String): Acc = acc.getOrPut("$model|$lead") { Acc() }
 
@@ -150,7 +153,7 @@ object ModelLeadCheck {
     /** Écarts d'un modèle pour un jeu de séries horaires, à l'échéance `lead`, aux heures `valid` (null = toutes). */
     private fun feed(
         st: ModelCheck.Station, model: String, lead: String, times: List<Long>, temp: DoubleArray?, rain: DoubleArray?,
-        only: Set<Int>?, now: Long,
+        only: Set<Int>?, now: Long, runSec: Long?, dayLead: Int?,
     ) {
         val a = accOf(model, lead)
         val zone = java.time.ZoneId.systemDefault()
@@ -163,8 +166,20 @@ object ModelLeadCheck {
             if (sT == null && sR == null) continue
             val hr = java.time.Instant.ofEpochSecond(t).atZone(zone).hour
             a.add(temp?.at(i), sT, rain?.at(i), neighbourMax(rain, i), sR, stationNear(st, t), hr in 8..19)
+            if (temp?.at(i) != null || rain?.at(i) != null) {
+                csvRows.add(
+                    listOf(
+                        java.time.Instant.ofEpochSecond(t).toString(), t.toString(), hr.toString(),
+                        runSec?.let { java.time.Instant.ofEpochSecond(it).toString() } ?: "",
+                        (if (runSec != null) (t - runSec) / HOUR else (dayLead ?: 0) * 24L).toString(),
+                        lead, model, num(temp?.at(i), 2), num(sT, 2), num(rain?.at(i), 3), num(sR, 3),
+                    ).joinToString(","),
+                )
+            }
         }
     }
+
+    private fun num(v: Double?, d: Int): String = if (v == null) "" else String.format(java.util.Locale.ROOT, "%.${d}f", v)
 
     private fun timesOf(h: JSONObject): List<Long> {
         val a = h.optJSONArray("time") ?: return emptyList()
@@ -175,8 +190,9 @@ object ModelLeadCheck {
      * Lance le diagnostic. `days` : profondeur de l'historique (jours) ; les échéances en heures sont limitées à 30 jours
      * (4 requêtes par jour et par modèle). `progress` reçoit l'avancement.
      */
-    fun run(c: Credentials, loc: Location, days: Int, progress: (String) -> Unit): LeadReport {
+    fun run(c: Credentials, loc: Location, days: Int, outFile: java.io.File?, progress: (String) -> Unit): LeadReport {
         acc.clear()
+        csvRows.clear()
         val now = System.currentTimeMillis() / 1000
         progress("Lecture de l'historique de la station…")
         val st = try {
@@ -198,7 +214,7 @@ object ModelLeadCheck {
                     try {
                         val h = OpenMeteoClient.fetchPreviousDay(loc, m.id, d, spanDays).optJSONObject("hourly")
                         if (h != null) {
-                            feed(st, m.short, "j$d", timesOf(h), column(h, "temperature_2m_previous_day$d"), column(h, "precipitation_previous_day$d"), null, now)
+                            feed(st, m.short, "j$d", timesOf(h), column(h, "temperature_2m_previous_day$d"), column(h, "precipitation_previous_day$d"), null, now, null, d)
                         } else {
                             fail(m.short)
                         }
@@ -226,7 +242,7 @@ object ModelLeadCheck {
                                 val rain = column(h, "precipitation")
                                 for (b in BUCKETS) {
                                     val idx = b.hours.mapNotNull { lead -> times.indexOf(run + lead * HOUR).takeIf { it >= 0 } }.toSet()
-                                    if (idx.isNotEmpty()) feed(st, m.short, b.key, times, temp, rain, idx, now)
+                                    if (idx.isNotEmpty()) feed(st, m.short, b.key, times, temp, rain, idx, now, run, null)
                                 }
                             }
                         } catch (e: Exception) {
@@ -259,7 +275,31 @@ object ModelLeadCheck {
                 null
             }
         }
-        return report(st, hourlyDays, failures.mapValues { it.value.get() }, loc.elevation, grid)
+        val rep = report(st, hourlyDays, failures.mapValues { it.value.get() }, loc.elevation, grid)
+        val file = outFile?.let { f ->
+            try {
+                writeCsv(f, loc, grid, st)
+                f
+            } catch (e: Exception) {
+                null
+            }
+        }
+        return LeadReport(rep.notes, rep.blocks, file)
+    }
+
+    private fun writeCsv(f: java.io.File, loc: Location, grid: Map<String, Double?>, st: ModelCheck.Station) {
+        f.parentFile?.mkdirs()
+        f.bufferedWriter().use { w ->
+            w.write("# Ecowidget : prévisions des modèles et mesures de la station, une ligne par heure comparée\n")
+            w.write("# genere=" + java.time.Instant.now() + "\n")
+            w.write("# altitude_station_m=" + (loc.elevation?.let { String.format(java.util.Locale.ROOT, "%.0f", it) } ?: "") + "\n")
+            w.write("# historique_station_jours=" + String.format(java.util.Locale.ROOT, "%.1f", st.days) + "\n")
+            grid.forEach { (m, g) -> w.write("# altitude_grille_m," + m + "," + (g?.let { String.format(java.util.Locale.ROOT, "%.0f", it) } ?: "") + "\n") }
+            w.write("# unites : temperature en degres C ; pluie en mm cumules sur l'heure qui se termine a valid_utc ; seuil de pluie 0.2 mm\n")
+            w.write("# lead_h : echeance en heures depuis l'heure du run (jours : 24 x J) ; run_utc vide pour les echeances en jours\n")
+            w.write("valid_utc,valid_epoch,heure_locale,run_utc,lead_h,echeance,modele,temp_modele,temp_station,pluie_modele,pluie_station\n")
+            for (r in csvRows) w.write(r + "\n")
+        }
     }
 
     // ───────────────────────────── Rapport ─────────────────────────────

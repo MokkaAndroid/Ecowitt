@@ -829,7 +829,7 @@ private fun SettingsScreen(tick: Int) {
                             val creds = Credentials(appKey, apiKey, Credentials.normalizeMac(mac))
                             scope.launch {
                                 leadCheck = withContext(Dispatchers.IO) {
-                                    runCatching { ModelLeadCheck.run(creds, loc, depth) { leadProgress = it } }
+                                    runCatching { ModelLeadCheck.run(creds, loc, depth, java.io.File(java.io.File(ctx.cacheDir, "export"), "ecowidget-comparaison.csv")) { leadProgress = it } }
                                         .getOrElse { ModelLeadCheck.LeadReport(listOf(OpenMeteoClient.describe(it)), emptyList()) }
                                 }
                                 leadBusy = false
@@ -844,6 +844,11 @@ private fun SettingsScreen(tick: Int) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                leadCheck?.csv?.let { f ->
+                    Button(onClick = { shareCsv(ctx, f) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Partager les données brutes (CSV, " + (f.length() / 1024) + " Ko)")
+                    }
                 }
                 leadCheck?.let { LeadTables(it) }
             }
@@ -989,4 +994,15 @@ private fun LeadTables(r: ModelLeadCheck.LeadReport) {
             )
         }
     }
+}
+
+/** Ouvre le menu de partage Android pour envoyer le fichier CSV (mail, messagerie, Drive…). */
+private fun shareCsv(ctx: android.content.Context, f: java.io.File) {
+    val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+        .setType("text/csv")
+        .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+        .putExtra(android.content.Intent.EXTRA_SUBJECT, "Ecowidget · comparaison des modèles")
+        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    ctx.startActivity(android.content.Intent.createChooser(send, "Partager le CSV").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
 }
