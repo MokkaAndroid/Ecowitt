@@ -53,6 +53,7 @@ import app.ecowidget.data.Location
 import app.ecowidget.data.Metric
 import app.ecowidget.data.MeteoFranceClient
 import app.ecowidget.data.ModelCheck
+import app.ecowidget.data.ModelLeadCheck
 import app.ecowidget.data.OpenMeteoClient
 import app.ecowidget.data.Place
 import app.ecowidget.data.SnapshotParser
@@ -809,6 +810,37 @@ private fun SettingsScreen(tick: Int) {
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (checking) "Comparaison en cours (jusqu'à 1 min)…" else "Comparer les modèles aux mesures (pluie, température)") }
                 modelCheck?.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                }
+                var leadCheck by remember { mutableStateOf<List<String>?>(null) }
+                var leadBusy by remember { mutableStateOf(false) }
+                var leadProgress by remember { mutableStateOf("") }
+                OutlinedButton(
+                    enabled = !leadBusy && location != null && credsOk,
+                    onClick = {
+                        location?.let { loc ->
+                            leadBusy = true
+                            leadProgress = "Démarrage…"
+                            val creds = Credentials(appKey, apiKey, Credentials.normalizeMac(mac))
+                            scope.launch {
+                                leadCheck = withContext(Dispatchers.IO) {
+                                    runCatching { ModelLeadCheck.run(creds, loc, depth) { leadProgress = it } }
+                                        .getOrElse { listOf(OpenMeteoClient.describe(it)) }
+                                }
+                                leadBusy = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (leadBusy) leadProgress else "Comparer par échéance (+1 h à J+5) · plusieurs minutes") }
+                if (leadBusy) {
+                    Text(
+                        "Garde l'écran allumé et l'application ouverte pendant le test.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                leadCheck?.forEach { line ->
                     Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                 }
             }

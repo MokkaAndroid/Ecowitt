@@ -78,7 +78,7 @@ object OpenMeteoClient {
             .appendQueryParameter("longitude", "%.2f".format(java.util.Locale.ROOT, Math.round(loc.longitude * 100.0) / 100.0))
             .appendQueryParameter("timezone", "auto")
             .appendQueryParameter("timeformat", "unixtime")
-            .appendQueryParameter("forecast_days", days.toString())
+        if (days > 0) b.appendQueryParameter("forecast_days", days.toString())
         if (withElevation) {
             loc.elevation?.let { b.appendQueryParameter("elevation", "%.0f".format(java.util.Locale.ROOT, it)) }
         }
@@ -295,6 +295,41 @@ object OpenMeteoClient {
         return out
     }
 
+    /** Requête avec une nouvelle tentative après un « trop de requêtes » (429). */
+    private fun getJsonRetry(url: String, readMs: Int): JSONObject {
+        var attempt = 0
+        while (true) {
+            try {
+                return getJson(url, readMs)
+            } catch (e: OpenMeteoException) {
+                if (e.httpCode != 429 || attempt >= 2) throw e
+                attempt++
+                Thread.sleep(5_000L * attempt)
+            }
+        }
+    }
+
+    /** Température et pluie horaires prévues `day` jour(s) à l'avance (API « Previous Runs »), sur `pastDays` jours. */
+    fun fetchPreviousDay(loc: Location, model: String, day: Int, pastDays: Int): JSONObject {
+        val b = builder("previous-runs-api.open-meteo.com", "v1/forecast", loc, true, 1)
+            .appendQueryParameter("past_days", pastDays.toString())
+            .appendQueryParameter("hourly", "temperature_2m_previous_day$day,precipitation_previous_day$day")
+            .appendQueryParameter("models", model)
+        return getJsonRetry(b.build().toString(), 15_000)
+    }
+
+    private val RUN_FORMAT: java.time.format.DateTimeFormatter =
+        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm").withZone(java.time.ZoneOffset.UTC)
+
+    /** Température et pluie horaires d'un run précis d'un modèle (API « Single Runs », `runSec` = heure du run, UTC). */
+    fun fetchSingleRun(loc: Location, model: String, runSec: Long): JSONObject {
+        val b = builder("single-runs-api.open-meteo.com", "v1/forecast", loc, true, 0)
+            .appendQueryParameter("run", RUN_FORMAT.format(java.time.Instant.ofEpochSecond(runSec)))
+            .appendQueryParameter("hourly", "temperature_2m,precipitation")
+            .appendQueryParameter("models", model)
+        return getJsonRetry(b.build().toString(), 20_000)
+    }
+
     /**
      * Prévisions passées d'un modèle (API « Previous Runs ») : valeur du dernier run et valeur prévue la veille,
      * pour la température et la pluie horaire, sur les `pastDays` derniers jours. Une requête par modèle.
@@ -307,12 +342,12 @@ object OpenMeteoClient {
         return getJson(b.build().toString())
     }
 
-    private fun getJson(url: String): JSONObject {
+    private fun getJson(url: String, readMs: Int = 6_000): JSONObject {
         val conn = URL(url).openConnection() as HttpsURLConnection
         try {
             conn.requestMethod = "GET"
             conn.connectTimeout = 4_000
-            conn.readTimeout = 6_000
+            conn.readTimeout = readMs
             conn.instanceFollowRedirects = false
             conn.setRequestProperty("Accept", "application/json")
             val http = conn.responseCode

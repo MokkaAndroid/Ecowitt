@@ -21,10 +21,10 @@ object ModelCheck {
     )
 
     /** Pluie : une heure est « mouillée » à partir de 0,2 mm. */
-    private const val WET = 0.2
-    private const val HOUR = 3600L
+    internal const val WET = 0.2
+    internal const val HOUR = 3600L
 
-    private class Station(val temp: Map<Long, Double>, val rain: Map<Long, Double>?, val days: Double)
+    internal class Station(val temp: Map<Long, Double>, val rain: Map<Long, Double>?, val days: Double)
 
     private class Result(val label: String, val lead: String, val n: Int, val line: String, val csi: Double?, val mae: Double?)
 
@@ -77,7 +77,7 @@ object ModelCheck {
     private const val CHUNK_SEC = 6 * 86400L
     private const val PAUSE_MS = 1_100L
 
-    private fun fetchStation(c: Credentials, now: Long, days: Int): Station {
+    internal fun fetchStation(c: Credentials, now: Long, days: Int): Station {
         val limitStart = now - days * 86400L
         val temp = HashMap<Long, Double>()
         val rain = HashMap<Long, Double>()
