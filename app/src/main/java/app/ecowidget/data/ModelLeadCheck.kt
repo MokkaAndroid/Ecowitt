@@ -64,14 +64,26 @@ object ModelLeadCheck {
         var faT = 0
         var totM = 0.0
         var totS = 0.0
+        var mwN = 0
+        var nDay = 0
+        var sumDay = 0.0
+        var nNight = 0
+        var sumNight = 0.0
 
         @Synchronized
-        fun add(mT: Double?, sT: Double?, mR: Double?, mRn: Double?, sR: Double?, sRn: Double?) {
+        fun add(mT: Double?, sT: Double?, mR: Double?, mRn: Double?, sR: Double?, sRn: Double?, day: Boolean) {
             if (mT != null && sT != null) {
                 val e = mT - sT
                 nT++
                 sumErr += e
                 sumAbs += abs(e)
+                if (day) {
+                    nDay++
+                    sumDay += e
+                } else {
+                    nNight++
+                    sumNight += e
+                }
             }
             if (mR != null && sR != null) {
                 nR++
@@ -80,6 +92,7 @@ object ModelLeadCheck {
                 val mw = mR >= WET
                 val sw = sR >= WET
                 if (sw) wetS++
+                if (mw) mwN++
                 if (mw && sw) hit++ else if (sw) miss++ else if (mw) fa++
                 // Tolérance ±1 h : une pluie prévue une heure trop tôt ou trop tard compte comme trouvée.
                 val mwT = (mRn ?: mR) >= WET
@@ -91,12 +104,24 @@ object ModelLeadCheck {
             }
         }
 
+        /** Détection à ±1 h : part des heures de pluie mesurées où le modèle a prévu de la pluie à ±1 h. */
+        fun podTol(): Double? = (hitT + missT).takeIf { it > 0 }?.let { hitT.toDouble() / it }
+
+        /** Fausses alertes à ±1 h : part des heures de pluie prévue sans pluie mesurée à ±1 h. */
+        fun farTol(): Double? = mwN.takeIf { it > 0 }?.let { faT.toDouble() / it }
+        fun biasDay(): Double? = if (nDay > 0) sumDay / nDay else null
+        fun biasNight(): Double? = if (nNight > 0) sumNight / nNight else null
         fun csi(): Double? = (hit + miss + fa).takeIf { it > 0 }?.let { hit.toDouble() / it }
         fun csiTol(): Double? = (hitT + missT + faT).takeIf { it > 0 }?.let { hitT.toDouble() / it }
         fun ratio(): Double? = if (totS > 0.5) totM / totS else null
         fun bias(): Double? = if (nT > 0) sumErr / nT else null
         fun mae(): Double? = if (nT > 0) sumAbs / nT else null
     }
+
+    class RainRow(val model: String, val pod: Double?, val fn: Double?, val fp: Double?, val csiTol: Double?, val csi: Double?, val ratio: Double?)
+    class TempRow(val model: String, val mae: Double, val bias: Double, val biasDay: Double?, val biasNight: Double?)
+    class LeadBlock(val label: String, val wet: Int, val rain: List<RainRow>, val temp: List<TempRow>)
+    class LeadReport(val notes: List<String>, val blocks: List<LeadBlock>)
 
     private val acc = ConcurrentHashMap<String, Acc>()
 
@@ -128,6 +153,7 @@ object ModelLeadCheck {
         only: Set<Int>?, now: Long,
     ) {
         val a = accOf(model, lead)
+        val zone = java.time.ZoneId.systemDefault()
         for (i in times.indices) {
             if (only != null && i !in only) continue
             val t = times[i]
@@ -135,7 +161,8 @@ object ModelLeadCheck {
             val sT = st.temp[t]
             val sR = st.rain?.get(t)
             if (sT == null && sR == null) continue
-            a.add(temp?.at(i), sT, rain?.at(i), neighbourMax(rain, i), sR, stationNear(st, t))
+            val hr = java.time.Instant.ofEpochSecond(t).atZone(zone).hour
+            a.add(temp?.at(i), sT, rain?.at(i), neighbourMax(rain, i), sR, stationNear(st, t), hr in 8..19)
         }
     }
 
@@ -148,14 +175,14 @@ object ModelLeadCheck {
      * Lance le diagnostic. `days` : profondeur de l'historique (jours) ; les échéances en heures sont limitées à 30 jours
      * (4 requêtes par jour et par modèle). `progress` reçoit l'avancement.
      */
-    fun run(c: Credentials, loc: Location, days: Int, progress: (String) -> Unit): List<String> {
+    fun run(c: Credentials, loc: Location, days: Int, progress: (String) -> Unit): LeadReport {
         acc.clear()
         val now = System.currentTimeMillis() / 1000
         progress("Lecture de l'historique de la station…")
         val st = try {
             ModelCheck.fetchStation(c, now, days)
         } catch (e: Exception) {
-            return listOf("Historique station indisponible : " + EcowittClient.describe(e))
+            return LeadReport(listOf("Historique station indisponible : " + EcowittClient.describe(e)), emptyList())
         }
         val spanDays = kotlin.math.ceil(st.days).toInt().coerceIn(2, 90)
         val hourlyDays = minOf(spanDays, 30)
@@ -223,7 +250,16 @@ object ModelLeadCheck {
         pool.shutdown()
         pool.awaitTermination(30, TimeUnit.MINUTES)
 
-        return report(st, spanDays, hourlyDays, failures.mapValues { it.value.get() })
+        progress("Altitude des points de grille…")
+        val grid = LinkedHashMap<String, Double?>()
+        for (m in (HOURLY_MODELS + DAILY_MODELS).distinctBy { it.short }) {
+            grid[m.short] = try {
+                OpenMeteoClient.fetchGridElevation(loc, m.id)
+            } catch (e: Exception) {
+                null
+            }
+        }
+        return report(st, hourlyDays, failures.mapValues { it.value.get() }, loc.elevation, grid)
     }
 
     // ───────────────────────────── Rapport ─────────────────────────────
@@ -231,60 +267,51 @@ object ModelLeadCheck {
     private fun fmt(v: Double, d: Int): String = Metric.fmt(v, d)
     private fun pct(f: Double): String = Metric.fmt(f * 100.0, 0)
 
-    private fun report(st: ModelCheck.Station, spanDays: Int, hourlyDays: Int, failures: Map<String, Int>): List<String> {
-        val out = ArrayList<String>()
+    private fun report(
+        st: ModelCheck.Station, hourlyDays: Int, failures: Map<String, Int>, userM: Double?, grid: Map<String, Double?>,
+    ): LeadReport {
+        val notes = ArrayList<String>()
         val rainTotal = st.rain?.values?.sum()
-        out.add(
+        notes.add(
             "Station sur " + fmt(st.days, 1) + " j : " +
-                (if (rainTotal != null) fmt(rainTotal, 0) + " mm, " + (st.rain?.values?.count { it >= WET } ?: 0).toString() + " h de pluie" else "pluie indisponible") +
+                (if (rainTotal != null) fmt(rainTotal, 0) + " mm, " + (st.rain?.values?.count { it >= WET } ?: 0) + " h de pluie" else "pluie indisponible") +
                 ". Échéances en heures : " + minOf(hourlyDays, st.days.toInt().coerceAtLeast(1)) + " derniers jours, 4 runs par jour.",
         )
-        out.add(
-            "Lecture : pluie = score à ±1 h (score strict, même heure) · quantité prévue ÷ mesurée (1,0 = juste). " +
-                "Température = écart moyen (biais). ★ = meilleur. Échéance comptée depuis l'heure du run, disponible 2 à 4 h après.",
+        notes.add(
+            "Pluie, à ±1 h : « Détectée » = heures de pluie mesurées que le modèle a vues · « Manquée » = celles qu'il a ratées (faux négatifs) · " +
+                "« Fausse alerte » = heures de pluie prévue sans pluie mesurée (faux positifs) · « Score » = détectées ÷ (détectées + manquées + fausses alertes) · " +
+                "« Strict » = même score, à l'heure exacte · « Quantité » = prévu ÷ mesuré (1,0 = juste). Vert = meilleur de la colonne.",
         )
+        notes.add(
+            "Température : écart moyen, biais (prévu − mesuré), biais de jour (8 h–20 h) et de nuit. Échéance comptée depuis l'heure du run, " +
+                "disponible 2 à 4 h plus tard.",
+        )
+        notes.add(
+            if (userM != null) "Altitude envoyée à Open-Meteo : " + fmt(userM, 0) + " m (les températures prévues sont corrigées avec −0,65 °C / 100 m)."
+            else "Altitude non renseignée dans les Réglages : les températures prévues ne sont PAS corrigées.",
+        )
+        val gridTxt = grid.entries.filter { it.value != null }.joinToString(" · ") { (m, g) ->
+            m + " " + fmt(g!!, 0) + " m" + (if (userM != null) " (" + (if (userM - g >= 0) "+" else "") + fmt(userM - g, 0) + ")" else "")
+        }
+        if (gridTxt.isNotEmpty()) notes.add("Altitude du point de grille de chaque modèle (écart avec toi) : $gridTxt")
 
-        data class Lead(val key: String, val label: String)
-        val leads = BUCKETS.map { Lead(it.key, it.label) } + (1..5).map { Lead("j$it", "J+$it") }
         val models = (HOURLY_MODELS + DAILY_MODELS).map { it.short }.distinct()
-
-        val bestRain = ArrayList<String>()
-        val bestTemp = ArrayList<String>()
-        val rainLines = ArrayList<String>()
-        val tempLines = ArrayList<String>()
-        for (l in leads) {
-            val rows = models.mapNotNull { m -> acc["$m|${l.key}"]?.let { m to it } }
-            // Pluie
-            val rain = rows.filter { it.second.nR >= 40 && it.second.csiTol() != null }.sortedByDescending { it.second.csiTol() }
-            if (rain.isNotEmpty()) {
-                val wet = rain.maxOf { it.second.wetS }
-                val txt = rain.mapIndexed { i, (m, a) ->
-                    (if (i == 0) "★ " else "") + m + " " + pct(a.csiTol()!!) + " % (" + (a.csi()?.let { pct(it) } ?: "—") + ")" +
-                        (a.ratio()?.let { " ×" + fmt(it, 1) } ?: "")
-                }.joinToString(" · ")
-                rainLines.add(l.label + " · pluie (" + wet + " h de pluie) : " + txt)
-                bestRain.add(l.label + " " + rain.first().first)
-            }
-            // Température
-            val temp = rows.filter { it.second.nT >= 40 && it.second.mae() != null }.sortedBy { it.second.mae() }
-            if (temp.isNotEmpty()) {
-                val txt = temp.mapIndexed { i, (m, a) ->
-                    (if (i == 0) "★ " else "") + m + " " + fmt(a.mae()!!, 1) + "° (" + (if (a.bias()!! >= 0) "+" else "") + fmt(a.bias()!!, 1) + ")"
-                }.joinToString(" · ")
-                tempLines.add(l.label + " · température : " + txt)
-                bestTemp.add(l.label + " " + temp.first().first)
-            }
+        val labels = BUCKETS.map { it.key to it.label } + (1..5).map { "j$it" to "J+$it" }
+        val blocks = ArrayList<LeadBlock>()
+        for ((key, label) in labels) {
+            val rows = models.mapNotNull { m -> acc["$m|$key"]?.let { m to it } }
+            val rain = rows.filter { it.second.nR >= 40 && it.second.csiTol() != null }
+                .sortedByDescending { it.second.csiTol() }
+                .map { (m, a) -> RainRow(m, a.podTol(), a.podTol()?.let { 1.0 - it }, a.farTol(), a.csiTol(), a.csi(), a.ratio()) }
+            val temp = rows.filter { it.second.nT >= 40 && it.second.mae() != null }
+                .sortedBy { it.second.mae() }
+                .map { (m, a) -> TempRow(m, a.mae()!!, a.bias()!!, a.biasDay(), a.biasNight()) }
+            if (rain.isEmpty() && temp.isEmpty()) continue
+            blocks.add(LeadBlock(label, rows.maxOfOrNull { it.second.wetS } ?: 0, rain, temp))
         }
-        if (bestRain.isNotEmpty()) out.add("Pluie, meilleur modèle : " + bestRain.joinToString(" · "))
-        if (bestTemp.isNotEmpty()) out.add("Température, meilleur modèle : " + bestTemp.joinToString(" · "))
-        out.addAll(rainLines)
-        out.addAll(tempLines)
-
         val fails = failures.filter { it.value > 0 }
-        if (fails.isNotEmpty()) {
-            out.add("Requêtes sans réponse : " + fails.entries.joinToString(" · ") { it.key + " " + it.value })
-        }
-        if (rainLines.isEmpty() && tempLines.isEmpty()) out.add("Aucun résultat exploitable (runs indisponibles ou historique vide).")
-        return out
+        if (fails.isNotEmpty()) notes.add("Requêtes sans réponse : " + fails.entries.joinToString(" · ") { it.key + " " + it.value })
+        if (blocks.isEmpty()) notes.add("Aucun résultat exploitable (runs indisponibles ou historique vide).")
+        return LeadReport(notes, blocks)
     }
 }

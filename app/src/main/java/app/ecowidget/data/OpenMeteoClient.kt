@@ -295,6 +295,14 @@ object OpenMeteoClient {
         return out
     }
 
+    /** Altitude (m) du point de grille d'un modèle pour la position, sans correction d'altitude demandée. */
+    fun fetchGridElevation(loc: Location, model: String): Double? {
+        val b = builder("api.open-meteo.com", "v1/forecast", loc, false, 1)
+            .appendQueryParameter("hourly", "temperature_2m")
+            .appendQueryParameter("models", model)
+        return getJson(b.build().toString()).optDouble("elevation", Double.NaN).takeIf { !it.isNaN() }
+    }
+
     /** Requête avec une nouvelle tentative après un « trop de requêtes » (429). */
     private fun getJsonRetry(url: String, readMs: Int): JSONObject {
         var attempt = 0

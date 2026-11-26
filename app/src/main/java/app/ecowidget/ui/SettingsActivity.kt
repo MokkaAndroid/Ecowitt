@@ -13,11 +13,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -39,12 +41,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.ecowidget.data.AddressClient
 import app.ecowidget.data.Credentials
 import app.ecowidget.data.EcowittClient
@@ -812,7 +817,7 @@ private fun SettingsScreen(tick: Int) {
                 modelCheck?.forEach { line ->
                     Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                 }
-                var leadCheck by remember { mutableStateOf<List<String>?>(null) }
+                var leadCheck by remember { mutableStateOf<ModelLeadCheck.LeadReport?>(null) }
                 var leadBusy by remember { mutableStateOf(false) }
                 var leadProgress by remember { mutableStateOf("") }
                 OutlinedButton(
@@ -825,7 +830,7 @@ private fun SettingsScreen(tick: Int) {
                             scope.launch {
                                 leadCheck = withContext(Dispatchers.IO) {
                                     runCatching { ModelLeadCheck.run(creds, loc, depth) { leadProgress = it } }
-                                        .getOrElse { listOf(OpenMeteoClient.describe(it)) }
+                                        .getOrElse { ModelLeadCheck.LeadReport(listOf(OpenMeteoClient.describe(it)), emptyList()) }
                                 }
                                 leadBusy = false
                             }
@@ -840,9 +845,7 @@ private fun SettingsScreen(tick: Int) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                leadCheck?.forEach { line ->
-                    Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
-                }
+                leadCheck?.let { LeadTables(it) }
             }
 
             Section("Widget") {
@@ -883,6 +886,107 @@ private fun SettingsScreen(tick: Int) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+private val BEST_GREEN = Color(0xFF3FBF7F)
+
+/** Cellule d'un tableau de résultats : texte et « meilleur de la colonne ». */
+private class Cell(val text: String, val best: Boolean = false)
+
+/** Tableau défilant horizontalement : première colonne = modèle, le meilleur de chaque colonne en vert. */
+@Composable
+private fun ResultTable(headers: List<String>, rows: List<List<Cell>>) {
+    val scroll = rememberScrollState()
+    Column(modifier = Modifier.horizontalScroll(scroll)) {
+        Row {
+            headers.forEachIndexed { k, h ->
+                Text(
+                    h,
+                    modifier = Modifier.width(if (k == 0) 76.dp else 62.dp).padding(vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                )
+            }
+        }
+        rows.forEach { r ->
+            Row {
+                r.forEachIndexed { k, c ->
+                    Text(
+                        c.text,
+                        modifier = Modifier.width(if (k == 0) 76.dp else 62.dp).padding(vertical = 2.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 12.sp,
+                        fontWeight = if (c.best) FontWeight.Bold else FontWeight.Normal,
+                        color = if (c.best) BEST_GREEN else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun pc(v: Double?): String = if (v == null) "—" else Metric.fmt(v * 100.0, 0) + " %"
+private fun deg(v: Double?, sign: Boolean = false): String =
+    if (v == null) "—" else (if (sign && v >= 0) "+" else "") + Metric.fmt(v, 1) + "°"
+
+/** Indices des valeurs qui sont les meilleures : plus petit `key` (la clé est déjà orientée « petit = meilleur »). */
+private fun bestIdx(keys: List<Double?>): Set<Int> {
+    val m = keys.filterNotNull().minOrNull() ?: return emptySet()
+    return keys.indices.filter { keys[it] != null && keys[it] == m }.toSet()
+}
+
+@Composable
+private fun LeadTables(r: ModelLeadCheck.LeadReport) {
+    r.notes.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface) }
+    r.blocks.forEach { b ->
+        Text(
+            b.label + " · " + b.wet + " h de pluie mesurées",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        if (b.rain.isNotEmpty()) {
+            val pod = bestIdx(b.rain.map { it.pod?.let { v -> -v } })
+            val fn = bestIdx(b.rain.map { it.fn })
+            val fp = bestIdx(b.rain.map { it.fp })
+            val score = bestIdx(b.rain.map { it.csiTol?.let { v -> -v } })
+            val strict = bestIdx(b.rain.map { it.csi?.let { v -> -v } })
+            val qty = bestIdx(b.rain.map { it.ratio?.let { v -> kotlin.math.abs(v - 1.0) } })
+            ResultTable(
+                listOf("Pluie", "Détectée", "Manquée", "Fausse alerte", "Score ±1 h", "Strict", "Quantité"),
+                b.rain.mapIndexed { i, x ->
+                    listOf(
+                        Cell(x.model),
+                        Cell(pc(x.pod), i in pod),
+                        Cell(pc(x.fn), i in fn),
+                        Cell(pc(x.fp), i in fp),
+                        Cell(pc(x.csiTol), i in score),
+                        Cell(pc(x.csi), i in strict),
+                        Cell(x.ratio?.let { "×" + Metric.fmt(it, 1) } ?: "—", i in qty),
+                    )
+                },
+            )
+        }
+        if (b.temp.isNotEmpty()) {
+            val mae = bestIdx(b.temp.map { it.mae })
+            val bias = bestIdx(b.temp.map { kotlin.math.abs(it.bias) })
+            val day = bestIdx(b.temp.map { it.biasDay?.let { v -> kotlin.math.abs(v) } })
+            val night = bestIdx(b.temp.map { it.biasNight?.let { v -> kotlin.math.abs(v) } })
+            ResultTable(
+                listOf("Température", "Écart moyen", "Biais", "Biais jour", "Biais nuit"),
+                b.temp.mapIndexed { i, x ->
+                    listOf(
+                        Cell(x.model),
+                        Cell(deg(x.mae), i in mae),
+                        Cell(deg(x.bias, true), i in bias),
+                        Cell(deg(x.biasDay, true), i in day),
+                        Cell(deg(x.biasNight, true), i in night),
+                    )
+                },
+            )
         }
     }
 }
