@@ -998,7 +998,12 @@ private fun LeadTables(r: ModelLeadCheck.LeadReport) {
 
 /** Ouvre le menu de partage Android pour envoyer le fichier CSV (mail, messagerie, Drive…). */
 private fun shareCsv(ctx: android.content.Context, f: java.io.File) {
-    val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+    val uri = try {
+        androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(ctx, "Partage impossible : " + e.javaClass.simpleName, android.widget.Toast.LENGTH_LONG).show()
+        return
+    }
     val send = android.content.Intent(android.content.Intent.ACTION_SEND)
         .setType("text/csv")
         .putExtra(android.content.Intent.EXTRA_STREAM, uri)

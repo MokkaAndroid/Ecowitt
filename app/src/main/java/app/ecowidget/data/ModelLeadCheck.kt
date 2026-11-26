@@ -276,15 +276,20 @@ object ModelLeadCheck {
             }
         }
         val rep = report(st, hourlyDays, failures.mapValues { it.value.get() }, loc.elevation, grid)
-        val file = outFile?.let { f ->
+        var file: java.io.File? = null
+        var csvError: String? = null
+        if (outFile == null) {
+            csvError = "aucun fichier de destination"
+        } else {
             try {
-                writeCsv(f, loc, grid, st)
-                f
-            } catch (e: Exception) {
-                null
+                writeCsv(outFile, loc, grid, st)
+                file = outFile
+            } catch (e: Throwable) {
+                csvError = e.javaClass.simpleName + (e.message?.let { " : " + it.take(120) } ?: "")
             }
         }
-        return LeadReport(rep.notes, rep.blocks, file)
+        val notes = if (csvError != null) rep.notes + ("Export CSV impossible : " + csvError) else rep.notes + ("Export CSV : " + csvRows.size + " lignes")
+        return LeadReport(notes, rep.blocks, file)
     }
 
     private fun writeCsv(f: java.io.File, loc: Location, grid: Map<String, Double?>, st: ModelCheck.Station) {
