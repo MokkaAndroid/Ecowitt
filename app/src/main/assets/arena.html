@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Arène des modèles</title>
+<style>
+:root{
+  color-scheme: dark;
+  --bg:#0d1117; --s1:#161b22; --s2:#1e252e; --line:#2a323d;
+  --tx:#eef1f5; --tx2:#97a1ad; --tx3:#66707c;
+  --good:#3fbf7f; --warn:#f2a600;
+  --c0:#338ced; --c1:#e76624; --c2:#00a888; --c3:#d28e05; --c4:#e24d8b; --c5:#0aac23; --c6:#9887ef;
+}
+@media (prefers-color-scheme: light){
+  :root{ color-scheme: light; --bg:#f3f5f8; --s1:#fff; --s2:#eef1f5; --line:#dde2e9; --tx:#161b22; --tx2:#566170; --tx3:#8a94a1;
+    --good:#1c9a5a; --warn:#b97a00;
+    --c0:#257de0; --c1:#f47230; --c2:#00b894; --c3:#f2a600; --c4:#ee7fac; --c5:#008a17; --c6:#6a4ce2; }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding:0 0 env(safe-area-inset-bottom)}
+header{padding:20px 16px 8px}
+h1{font-size:24px;margin:0;letter-spacing:-.02em}
+.sub{color:var(--tx2);font-size:13px;margin-top:4px}
+.bar{position:sticky;top:0;z-index:5;background:linear-gradient(var(--bg) 85%,transparent);padding:8px 16px 12px}
+.seg{display:flex;background:var(--s1);border:1px solid var(--line);border-radius:14px;padding:3px;gap:3px}
+.seg button{flex:1;border:0;background:transparent;color:var(--tx2);font:600 13px inherit;font-family:inherit;padding:9px 4px;border-radius:11px}
+.seg button.on{background:var(--tx);color:var(--bg)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:10px 0 2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--s1);color:var(--tx2);border-radius:999px;padding:7px 13px;font:600 13px inherit;font-family:inherit}
+.chip.on{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.card{background:var(--s1);border:1px solid var(--line);border-radius:20px;margin:12px 16px;padding:16px}
+.card h2{font-size:16px;margin:0 0 2px}
+.hint{color:var(--tx2);font-size:12.5px;margin:0 0 12px}
+.row{display:grid;grid-template-columns:78px 1fr auto;align-items:center;gap:10px;padding:6px 0}
+.nm{font-weight:600;font-size:13.5px;display:flex;flex-direction:column;gap:2px}
+.tag{font-size:10px;font-weight:700;color:var(--bg);background:var(--tx2);border-radius:5px;padding:1px 5px;align-self:flex-start;letter-spacing:.02em}
+.track{height:20px;background:var(--s2);border-radius:7px;overflow:hidden}
+.fill{height:100%;border-radius:7px;min-width:3px}
+.val{font-variant-numeric:tabular-nums;font-weight:700;font-size:14px;min-width:54px;text-align:right}
+.best .val{color:var(--good)}
+.verdict{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--s2);font-size:13.5px}
+.verdict b{color:var(--good)}
+.days{display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:5px}
+.d{aspect-ratio:1;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;border:0;position:relative;padding:0}
+.d small{font-size:8.5px;font-weight:600;opacity:.85}
+.d.none{background:var(--s2)!important;color:var(--tx3)}
+.d.ref::after{content:"";position:absolute;right:3px;top:3px;width:6px;height:6px;border-radius:50%;background:#fff}
+.legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:12px 0 0;font-size:12.5px;color:var(--tx2)}
+.lg{display:flex;align-items:center;gap:6px;border:0;background:none;color:var(--tx2);font:inherit;padding:2px 0}
+.dot{width:11px;height:11px;border-radius:4px;display:inline-block}
+.stack{display:flex;height:22px;border-radius:8px;overflow:hidden;gap:2px;margin:6px 0 0}
+.stack div{height:100%}
+svg{display:block;width:100%;height:auto;touch-action:pan-y}
+.tip{position:absolute;pointer-events:none;background:var(--tx);color:var(--bg);font-size:12px;border-radius:10px;padding:6px 9px;transform:translate(-50%,-110%);white-space:nowrap;display:none;z-index:3}
+.wrap{position:relative}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{color:var(--tx2);font-weight:600;font-size:11.5px;text-align:left;padding:0 4px 6px}
+td{padding:5px 4px;border-top:1px solid var(--line);vertical-align:middle}
+select{width:100%;background:var(--s2);color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:8px 6px;font:600 13px inherit;font-family:inherit}
+select.better{border-color:var(--good)}
+select.worse{border-color:var(--warn)}
+.sum{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 0 4px}
+.k{background:var(--s2);border-radius:14px;padding:10px;text-align:center}
+.k .t{font-size:11px;color:var(--tx2)}
+.k .n{font-size:18px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums}
+.k.g .n{color:var(--good)}
+.btns{display:flex;gap:8px;margin-top:12px}
+.btn{flex:1;border:1px solid var(--line);background:var(--s2);color:var(--tx);border-radius:12px;padding:11px 8px;font:700 13px inherit;font-family:inherit}
+.btn.p{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.sheet{position:fixed;left:0;right:0;bottom:0;background:var(--s1);border-top:1px solid var(--line);border-radius:22px 22px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom));transform:translateY(105%);transition:transform .22s ease;z-index:20;max-height:75vh;overflow:auto;box-shadow:0 -12px 40px rgba(0,0,0,.35)}
+.sheet.open{transform:none}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .2s;z-index:19}
+.scrim.open{opacity:1;pointer-events:auto}
+.empty{padding:40px 24px;text-align:center;color:var(--tx2)}
+.foot{color:var(--tx3);font-size:11.5px;padding:8px 20px 28px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Arène des modèles</h1>
+  <div class="sub" id="sub">Chargement…</div>
+</header>
+<div id="app"></div>
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet"></div>
+
+<script>
+(function(){
+"use strict";
+var COL=["var(--c0)","var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
+var METRICS=[
+  {k:"temp",l:"Température",u:"°",low:true,hint:"Écart moyen entre la température prévue et mesurée (plus bas = mieux)."},
+  {k:"det",l:"Pluie · heure",u:"%",low:false,hint:"Score de détection de la pluie à ±1 h : heures trouvées ÷ (trouvées + manquées + fausses alertes). Plus haut = mieux."},
+  {k:"qty",l:"Pluie · quantité",u:" mm",low:true,hint:"Écart moyen par jour entre la pluie prévue et mesurée, en mm (plus bas = mieux)."}
+];
+var D=null, st={m:"temp",lead:null,hide:{},sel:null,choice:{rain:{},temp:{}}};
+
+function load(){
+  var raw=null;
+  try{ if(window.Android&&Android.getData) raw=Android.getData(); }catch(e){}
+  if(!raw&&window.ARENA_DATA) raw=window.ARENA_DATA;
+  if(!raw){ empty("Aucune donnée. Lance d'abord « Comparer par échéance » dans les Réglages."); return; }
+  try{ D=typeof raw==="string"?JSON.parse(raw):raw; }catch(e){ empty("Données illisibles."); return; }
+  if(!D.rows||!D.rows.length){ empty("Aucune donnée exploitable."); return; }
+  D.idx={}; D.days={};
+  D.rows.forEach(function(r){
+    var o={d:r[0],m:r[1],l:r[2],nT:r[3],ae:r[4],e:r[5],nR:r[6],wet:r[7],hit:r[8],mis:r[9],fa:r[10],mw:r[11],tM:r[12],tS:r[13]};
+    var k=o.l+"|"+o.m; (D.idx[k]=D.idx[k]||[]).push(o);
+    (D.days[o.l]=D.days[o.l]||{})[o.d]=1;
+  });
+  D.lead={}; D.leads.forEach(function(l){D.lead[l.k]=l;});
+  D.leads=D.leads.filter(function(l){return D.days[l.k];});
+  var q=null; try{q=JSON.parse(window.Android&&Android.getChoice?Android.getChoice():"null");}catch(e){}
+  D.leads.forEach(function(l){
+    st.choice.rain[l.k]=(q&&q.rain&&q.rain[l.k]&&has(l.k,q.rain[l.k]))?q.rain[l.k]:l.ref;
+    st.choice.temp[l.k]=(q&&q.temp&&q.temp[l.k]&&has(l.k,q.temp[l.k]))?q.temp[l.k]:l.ref;
+  });
+  st.lead=D.leads[0].k;
+  var n=0; for(var d in D.days[st.lead]) n++;
+  var dt=new Date(D.generated);
+  document.getElementById("sub").textContent="Station "+(D.altitude!=null?Math.round(D.altitude)+" m · ":"")+"mesures vs prévisions · mis à jour le "+dt.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})+" à "+dt.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  render();
+}
+function empty(t){ document.getElementById("sub").textContent=""; document.getElementById("app").innerHTML='<div class="empty">'+t+'</div>'; }
+
+function has(lead,m){ return !!D.idx[lead+"|"+m]; }
+function models(lead){ return D.models.filter(function(m){return has(lead,m);}); }
+function col(m){ return COL[D.models.indexOf(m)%COL.length]; }
+function fm(v,d){ return v==null||isNaN(v)?"–":v.toFixed(d).replace(".",","); }
+function show(v,met){
+  if(v==null) return "–";
+  if(met.k==="det") return fm(v*100,0)+" %";
+  if(met.k==="qty") return fm(v,1)+" mm";
+  return fm(v,2)+" °";
+}
+function met(){ return METRICS.filter(function(x){return x.k===st.m;})[0]; }
+
+// valeur d'un ensemble de lignes selon la métrique (agrégée)
+function agg(rows,mk){
+  if(mk==="temp"){ var n=0,s=0; rows.forEach(function(r){n+=r.nT;s+=r.ae;}); return n>=20?s/n:null; }
+  if(mk==="det"){ var h=0,m=0,f=0; rows.forEach(function(r){h+=r.hit;m+=r.mis;f+=r.fa;}); return (h+m+f)>=5?h/(h+m+f):null; }
+  var s2=0,n2=0; rows.forEach(function(r){ if(r.nR>=12){ s2+=Math.abs(r.tM-r.tS); n2++; } }); return n2>=3?s2/n2:null;
+}
+function dayVal(r,mk){
+  if(mk==="temp") return r.nT>=6?r.ae/r.nT:null;
+  if(mk==="det"){ var t=r.hit+r.mis+r.fa; return t>0?r.hit/t:null; }
+  return r.nR>=12?Math.abs(r.tM-r.tS):null;
+}
+function better(a,b,low){ return low?a<b:a>b; }
+function overall(lead,m,mk){ return agg(D.idx[lead+"|"+m]||[],mk); }
+function bestOf(lead,mk){
+  var low=METRICS.filter(function(x){return x.k===mk;})[0].low,b=null,bv=null;
+  models(lead).forEach(function(m){ var v=overall(lead,m,mk); if(v!=null&&(bv==null||better(v,bv,low))){b=m;bv=v;} });
+  return {m:b,v:bv};
+}
+
+function render(){
+  var M=met(), L=D.lead[st.lead], app=document.getElementById("app");
+  var h='<div class="bar"><div class="seg">'+METRICS.map(function(x){return '<button class="'+(x.k===st.m?"on":"")+'" data-m="'+x.k+'">'+x.l+'</button>';}).join("")+'</div>'+
+    '<div class="chips">'+D.leads.map(function(l){return '<button class="chip '+(l.k===st.lead?"on":"")+'" data-l="'+l.k+'">'+l.l+'</button>';}).join("")+'</div></div>';
+  h+=ranking(M,L)+dayStrip(M,L)+curve(M,L)+arbitrage();
+  h+='<div class="foot">Les scores « pluie » comptent les heures à ±1 h. Les prévisions sont corrigées à l\'altitude de la station. Un modèle sans point pour une échéance n\'y est pas proposé. Plus il y a de jours de pluie dans la période, plus les scores de pluie sont fiables.</div>';
+  app.innerHTML=h; bind(); drawCurve();
+}
+
+function ranking(M,L){
+  var list=models(L.k).map(function(m){return {m:m,v:overall(L.k,m,M.k)};}).filter(function(x){return x.v!=null;});
+  list.sort(function(a,b){return M.low?a.v-b.v:b.v-a.v;});
+  if(!list.length) return '<div class="card"><h2>Classement</h2><p class="hint">Pas assez de données pour cette échéance.</p></div>';
+  var max=Math.max.apply(null,list.map(function(x){return x.v;}))||1;
+  var h='<div class="card"><h2>Classement · '+L.l+'</h2><p class="hint">'+M.hint+'</p>';
+  list.forEach(function(x,i){
+    var w=Math.max(6,x.v/max*100);
+    h+='<div class="row '+(i===0?"best":"")+'"><div class="nm">'+x.m+(x.m===L.ref?'<span class="tag">UTILISÉ</span>':'')+'</div>'+
+       '<div class="track"><div class="fill" style="width:'+w+'%;background:'+col(x.m)+'"></div></div><div class="val">'+(i===0?"★ ":"")+show(x.v,M)+'</div></div>';
+  });
+  var ref=list.filter(function(x){return x.m===L.ref;})[0], b=list[0];
+  if(!ref) h+='<div class="verdict">Le modèle utilisé (<b>'+L.ref+'</b>) n\'a pas assez de données ici. Meilleur : <b>'+b.m+'</b>.</div>';
+  else if(ref.m===b.m) h+='<div class="verdict">✓ Le modèle utilisé (<b>'+ref.m+'</b>) est déjà le meilleur sur cette échéance.</div>';
+  else{
+    var diff=Math.abs(ref.v-b.v);
+    h+='<div class="verdict">Utilisé : <b style="color:var(--tx)">'+ref.m+'</b> ('+show(ref.v,M)+'). <b>'+b.m+'</b> ferait mieux : '+
+      (M.k==="det"?fm(diff*100,0)+" points de score en plus":(M.k==="qty"?fm(diff,1)+" mm/jour d'erreur en moins":fm(diff,2)+" ° d'erreur en moins"))+'.</div>';
+  }
+  return h+'</div>';
+}
+
+function dayStrip(M,L){
+  var ds=Object.keys(D.days[L.k]).sort(), ms=models(L.k), wins={}, nd=0, refWins=0, cells="";
+  ms.forEach(function(m){wins[m]=0;});
+  ds.forEach(function(d){
+    var best=null,bv=null,refv=null,vals={};
+    ms.forEach(function(m){
+      var r=(D.idx[L.k+"|"+m]||[]).filter(function(o){return o.d===d;})[0]; if(!r) return;
+      var v=dayVal(r,M.k); if(v==null) return; vals[m]=v;
+      if(m===L.ref) refv=v;
+      if(bv==null||better(v,bv,M.low)){best=m;bv=v;}
+    });
+    // jours sans pluie : rien à départager pour la détection
+    var tie=false;
+    if(best){ var same=Object.keys(vals).filter(function(m){return Math.abs(vals[m]-bv)<(M.k==="temp"?0.005:1e-9);}); tie=same.length>1&&M.k!=="temp"&&same.length===Object.keys(vals).length; }
+    var day=new Date(d+"T12:00:00"), lab=day.getDate();
+    if(!best||tie||(M.k==="det"&&bv===0)){ cells+='<button class="d none" data-d="'+d+'">'+lab+'<small>'+(M.k==="temp"?"":"sec")+'</small></button>'; return; }
+    nd++; wins[best]++;
+    var isRef=(best===L.ref||(refv!=null&&Math.abs(refv-bv)<1e-9)); if(isRef) refWins++;
+    cells+='<button class="d '+(isRef?"ref":"")+'" data-d="'+d+'" style="background:'+col(best)+'">'+best.slice(0,3).toUpperCase().replace("-","")+'<small>'+lab+'</small></button>';
+  });
+  var h='<div class="card"><h2>Meilleur modèle chaque jour</h2><p class="hint">Chaque case = le gagnant du jour ('+L.l+'). Un point blanc : le modèle utilisé était au niveau du meilleur. Touche une case pour le détail.</p>';
+  h+='<div class="days">'+cells+'</div>';
+  if(nd){
+    h+='<div class="stack">'+ms.filter(function(m){return wins[m]>0;}).map(function(m){return '<div style="flex:'+wins[m]+';background:'+col(m)+'"></div>';}).join("")+'</div>';
+    h+='<div class="legend">'+ms.map(function(m){return '<span class="lg"><i class="dot" style="background:'+col(m)+'"></i>'+m+' · '+wins[m]+' j</span>';}).join("")+'</div>';
+    h+='<div class="verdict">Le modèle utilisé (<b style="color:var(--tx)">'+L.ref+'</b>) est au niveau du meilleur <b>'+refWins+' jour'+(refWins>1?"s":"")+' sur '+nd+'</b> ('+Math.round(refWins/nd*100)+' %).</div>';
+  }
+  return h+'</div>';
+}
+
+function curve(M,L){
+  return '<div class="card"><h2>Jour après jour</h2><p class="hint">Le modèle utilisé face au meilleur modèle de la période. Touche le graphique pour lire un jour.</p><div class="wrap" id="cw"><svg id="cv" viewBox="0 0 360 190"></svg><div class="tip" id="tip"></div></div><div class="legend" id="cl"></div></div>';
+}
+function drawCurve(){
+  var M=met(), L=D.lead[st.lead], svg=document.getElementById("cv"); if(!svg) return;
+  var b=bestOf(L.k,M.k).m, ref=L.ref, ds=Object.keys(D.days[L.k]).sort();
+  var names=(b&&b!==ref)?[ref,b]:[ref]; if(!has(L.k,ref)&&b) names=[b];
+  var S=names.map(function(m){
+    return {m:m,p:ds.map(function(d){ var r=(D.idx[L.k+"|"+m]||[]).filter(function(o){return o.d===d;})[0]; return r?dayVal(r,M.k):null; })};
+  });
+  var all=[]; S.forEach(function(s){s.p.forEach(function(v){if(v!=null)all.push(v);});});
+  if(!all.length){ svg.outerHTML='<div class="hint">Pas de données.</div>'; return; }
+  var mx=Math.max.apply(null,all), mn=M.k==="det"?0:0; if(M.k==="det") mx=1; mx=mx*1.1||1;
+  var W=360,H=190,pl=34,pr=8,pt=8,pb=22, n=ds.length;
+  function X(i){return pl+(n<2?0:i/(n-1))*(W-pl-pr);} function Y(v){return pt+(1-(v-mn)/(mx-mn))*(H-pt-pb);}
+  var g="",i;
+  for(i=0;i<=3;i++){ var v=mn+(mx-mn)*i/3, y=Y(v); g+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+y+'" y2="'+y+'" stroke="var(--line)" stroke-width="1"/><text x="'+(pl-5)+'" y="'+(y+4)+'" font-size="10" fill="var(--tx3)" text-anchor="end">'+(M.k==="det"?Math.round(v*100)+"%":fm(v,M.k==="temp"?1:1))+'</text>'; }
+  var step=Math.max(1,Math.ceil(n/6));
+  for(i=0;i<n;i+=step){ var dd=new Date(ds[i]+"T12:00:00"); g+='<text x="'+X(i)+'" y="'+(H-6)+'" font-size="10" fill="var(--tx3)" text-anchor="middle">'+dd.getDate()+"/"+(dd.getMonth()+1)+'</text>'; }
+  S.forEach(function(s,si){
+    var d="",pen=false;
+    s.p.forEach(function(v,k){ if(v==null){pen=false;return;} d+=(pen?"L":"M")+X(k).toFixed(1)+" "+Y(v).toFixed(1); pen=true; });
+    g+='<path d="'+d+'" fill="none" stroke="'+col(s.m)+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" '+(si===0&&S.length>1?'opacity=".95"':'')+'/>';
+  });
+  g+='<line id="xh" x1="0" x2="0" y1="'+pt+'" y2="'+(H-pb)+'" stroke="var(--tx2)" stroke-width="1" style="display:none"/>';
+  g+='<rect id="hit" x="'+pl+'" y="0" width="'+(W-pl-pr)+'" height="'+H+'" fill="transparent"/>';
+  svg.innerHTML=g;
+  document.getElementById("cl").innerHTML=S.map(function(s){return '<span class="lg"><i class="dot" style="background:'+col(s.m)+'"></i>'+s.m+(s.m===ref?" (utilisé)":" (meilleur)")+'</span>';}).join("");
+  var tip=document.getElementById("tip"), xh=document.getElementById("xh"), hit=document.getElementById("hit"), wrap=document.getElementById("cw");
+  function mv(ev){
+    var rc=svg.getBoundingClientRect(), t=ev.touches?ev.touches[0]:ev, px=(t.clientX-rc.left)/rc.width*W;
+    var k=Math.round((px-pl)/(W-pl-pr)*(n-1)); k=Math.max(0,Math.min(n-1,k));
+    xh.setAttribute("x1",X(k)); xh.setAttribute("x2",X(k)); xh.style.display="";
+    var dd=new Date(ds[k]+"T12:00:00");
+    tip.innerHTML='<b>'+dd.toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})+'</b><br>'+S.map(function(s){return s.m+" : "+show(s.p[k],M);}).join("<br>");
+    tip.style.display="block"; var wr=wrap.getBoundingClientRect(); var left=(X(k)/W)*rc.width; left=Math.max(60,Math.min(rc.width-60,left)); tip.style.left=left+"px"; tip.style.top=(rc.top-wr.top+20)+"px";
+  }
+  function lv(){ tip.style.display="none"; xh.style.display="none"; }
+  hit.addEventListener("touchstart",mv,{passive:true}); hit.addEventListener("touchmove",mv,{passive:true}); hit.addEventListener("touchend",lv);
+  hit.addEventListener("mousemove",mv); hit.addEventListener("mouseleave",lv);
+}
+
+// ───────── Arbitrage ─────────
+function scoreOf(kind,choice){
+  // moyenne (sur les échéances) de la métrique, pour un choix de modèle par échéance
+  var mk=kind==="rain"?"det":"temp", tot=0,n=0;
+  D.leads.forEach(function(l){ var m=choice[l.k]; var v=overall(l.k,m,mk); if(v!=null){tot+=v;n++;} });
+  return n?tot/n:null;
+}
+function idealChoice(kind){
+  var mk=kind==="rain"?"det":"temp", c={};
+  D.leads.forEach(function(l){ c[l.k]=bestOf(l.k,mk).m||l.ref; });
+  return c;
+}
+function arbitrage(){
+  var cur={}; D.leads.forEach(function(l){cur[l.k]=l.ref;});
+  var rows=D.leads.map(function(l){
+    function sel(kind){
+      var mk=kind==="rain"?"det":"temp", low=mk==="temp", cv=overall(l.k,l.ref,mk), cho=st.choice[kind][l.k], v=overall(l.k,cho,mk);
+      var cls=(cho===l.ref||cv==null||v==null)?"":(better(v,cv,low)?"better":"worse");
+      return '<select class="'+cls+'" data-k="'+kind+'" data-l="'+l.k+'">'+models(l.k).map(function(m){
+        var x=overall(l.k,m,mk); return '<option value="'+m+'"'+(m===cho?" selected":"")+'>'+m+(m===l.ref?" ●":"")+'</option>';
+      }).join("")+'</select><div class="hint" style="margin:3px 0 0;text-align:center">'+(v==null?"–":(mk==="det"?Math.round(v*100)+" %":fm(v,2)+" °"))+'</div>';
+    }
+    return '<tr><td><b>'+l.l+'</b></td><td>'+sel("rain")+'</td><td>'+sel("temp")+'</td></tr>';
+  }).join("");
+  var rc=scoreOf("rain",cur), rn=scoreOf("rain",st.choice.rain), ri=scoreOf("rain",idealChoice("rain"));
+  var tc=scoreOf("temp",cur), tn=scoreOf("temp",st.choice.temp), ti=scoreOf("temp",idealChoice("temp"));
+  var h='<div class="card"><h2>Ton arbitrage</h2><p class="hint">Choisis un modèle par échéance et par grandeur. ● = modèle utilisé aujourd\'hui. Bordure verte : mieux qu\'aujourd\'hui ; orange : moins bien.</p>';
+  h+='<div class="sum"><div class="k"><div class="t">Pluie · aujourd\'hui</div><div class="n">'+(rc==null?"–":Math.round(rc*100)+" %")+'</div></div>'+
+     '<div class="k g"><div class="t">Pluie · ton choix</div><div class="n">'+(rn==null?"–":Math.round(rn*100)+" %")+'</div></div>'+
+     '<div class="k"><div class="t">Pluie · idéal</div><div class="n">'+(ri==null?"–":Math.round(ri*100)+" %")+'</div></div>'+
+     '<div class="k"><div class="t">Temp. · aujourd\'hui</div><div class="n">'+fm(tc,2)+'°</div></div>'+
+     '<div class="k g"><div class="t">Temp. · ton choix</div><div class="n">'+fm(tn,2)+'°</div></div>'+
+     '<div class="k"><div class="t">Temp. · idéal</div><div class="n">'+fm(ti,2)+'°</div></div></div>';
+  h+='<table><tr><th>Échéance</th><th>Pluie</th><th>Température</th></tr>'+rows+'</table>';
+  h+='<div class="btns"><button class="btn" id="bBest">Prendre le meilleur partout</button><button class="btn p" id="bSave">Enregistrer</button></div><div class="hint" id="saved" style="margin:8px 0 0"></div>';
+  return h+'</div>';
+}
+
+function sheet(d){
+  var M=met(), L=D.lead[st.lead], list=models(L.k).map(function(m){
+    var r=(D.idx[L.k+"|"+m]||[]).filter(function(o){return o.d===d;})[0]; return {m:m,v:r?dayVal(r,M.k):null,r:r};
+  }).filter(function(x){return x.v!=null;});
+  list.sort(function(a,b){return M.low?a.v-b.v:b.v-a.v;});
+  var dd=new Date(d+"T12:00:00"), h='<h2 style="margin:0 0 4px">'+dd.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})+'</h2><p class="hint">'+L.l+' · '+M.l+'</p>';
+  if(!list.length) h+='<p class="hint">Pas de données ce jour-là.</p>';
+  var any=list[0]&&list[0].r, st0=any?(M.k==="temp"?"":'Pluie mesurée : '+fm(any.tS,1)+' mm'):"";
+  if(st0) h+='<p class="hint">'+st0+'</p>';
+  var mx=Math.max.apply(null,list.map(function(x){return x.v;}))||1;
+  list.forEach(function(x,i){
+    var extra=M.k==="qty"?' (prévu '+fm(x.r.tM,1)+' mm)':"";
+    h+='<div class="row '+(i===0?"best":"")+'"><div class="nm">'+x.m+(x.m===L.ref?'<span class="tag">UTILISÉ</span>':'')+'</div><div class="track"><div class="fill" style="width:'+Math.max(6,x.v/mx*100)+'%;background:'+col(x.m)+'"></div></div><div class="val">'+(i===0?"★ ":"")+show(x.v,M)+'</div></div>';
+    if(extra) h+='<div class="hint" style="margin:-4px 0 2px 88px">'+extra+'</div>';
+  });
+  var el=document.getElementById("sheet"); el.innerHTML=h; el.classList.add("open"); document.getElementById("scrim").classList.add("open");
+}
+
+function bind(){
+  var app=document.getElementById("app");
+  Array.prototype.forEach.call(app.querySelectorAll("[data-m]"),function(b){b.onclick=function(){st.m=b.dataset.m;render();};});
+  Array.prototype.forEach.call(app.querySelectorAll(".chip"),function(b){b.onclick=function(){st.lead=b.dataset.l;render();};});
+  Array.prototype.forEach.call(app.querySelectorAll(".d"),function(b){b.onclick=function(){sheet(b.dataset.d);};});
+  Array.prototype.forEach.call(app.querySelectorAll("select"),function(s){s.onchange=function(){st.choice[s.dataset.k][s.dataset.l]=s.value;var y=window.scrollY;render();window.scrollTo(0,y);};});
+  var bb=document.getElementById("bBest"); if(bb) bb.onclick=function(){st.choice.rain=idealChoice("rain");st.choice.temp=idealChoice("temp");var y=window.scrollY;render();window.scrollTo(0,y);};
+  var sv=document.getElementById("bSave"); if(sv) sv.onclick=function(){
+    var js=JSON.stringify({rain:st.choice.rain,temp:st.choice.temp}), ok=false;
+    try{ if(window.Android&&Android.saveChoice){Android.saveChoice(js);ok=true;} }catch(e){}
+    document.getElementById("saved").textContent=ok?"Arbitrage enregistré. Dis-le moi pour que je l'applique aux prévisions.":"Enregistrement disponible dans l'appli uniquement.";
+  };
+}
+document.getElementById("scrim").onclick=function(){document.getElementById("sheet").classList.remove("open");this.classList.remove("open");};
+load();
+})();
+</script>
+</body>
+</html>

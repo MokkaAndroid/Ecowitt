@@ -130,6 +130,9 @@ object ModelLeadCheck {
 
     private fun accOf(model: String, lead: String): Acc = acc.getOrPut("$model|$lead") { Acc() }
 
+    /** Mêmes cumuls, mais jour par jour (clé « modèle|échéance|date locale »), pour la vue graphique. */
+    private val accDay = ConcurrentHashMap<String, Acc>()
+
     /** Pluie de la station aux heures `t - 1 h`, `t`, `t + 1 h` : le maximum disponible. */
     private fun stationNear(st: ModelCheck.Station, t: Long): Double? {
         val r = st.rain ?: return null
@@ -164,8 +167,11 @@ object ModelLeadCheck {
             val sT = st.temp[t]
             val sR = st.rain?.get(t)
             if (sT == null && sR == null) continue
-            val hr = java.time.Instant.ofEpochSecond(t).atZone(zone).hour
+            val zt = java.time.Instant.ofEpochSecond(t).atZone(zone)
+            val hr = zt.hour
             a.add(temp?.at(i), sT, rain?.at(i), neighbourMax(rain, i), sR, stationNear(st, t), hr in 8..19)
+            accDay.getOrPut("$model|$lead|" + zt.toLocalDate()) { Acc() }
+                .add(temp?.at(i), sT, rain?.at(i), neighbourMax(rain, i), sR, stationNear(st, t), hr in 8..19)
             if (temp?.at(i) != null || rain?.at(i) != null) {
                 csvRows.add(
                     listOf(
@@ -190,8 +196,9 @@ object ModelLeadCheck {
      * Lance le diagnostic. `days` : profondeur de l'historique (jours) ; les échéances en heures sont limitées à 30 jours
      * (4 requêtes par jour et par modèle). `progress` reçoit l'avancement.
      */
-    fun run(c: Credentials, loc: Location, days: Int, outFile: java.io.File?, progress: (String) -> Unit): LeadReport {
+    fun run(c: Credentials, loc: Location, days: Int, outFile: java.io.File?, arenaFile: java.io.File? = null, progress: (String) -> Unit): LeadReport {
         acc.clear()
+        accDay.clear()
         csvRows.clear()
         val now = System.currentTimeMillis() / 1000
         progress("Lecture de l'historique de la station…")
@@ -288,8 +295,45 @@ object ModelLeadCheck {
                 csvError = e.javaClass.simpleName + (e.message?.let { " : " + it.take(120) } ?: "")
             }
         }
+        if (arenaFile != null) {
+            try {
+                writeArena(arenaFile, loc)
+            } catch (e: Throwable) {
+                // La vue graphique restera sur les données précédentes.
+            }
+        }
         val notes = if (csvError != null) rep.notes + ("Export CSV impossible : " + csvError) else rep.notes + ("Export CSV : " + csvRows.size + " lignes")
         return LeadReport(notes, rep.blocks, file)
+    }
+
+    /** Modèle actuellement utilisé par l'appli pour chaque échéance (référence de la vue graphique). */
+    private fun currentRef(key: String): String = if (key.startsWith("j")) "Auto" else "AROME"
+
+    /** Données de la vue graphique : un enregistrement par (jour, modèle, échéance), lues par assets/arena.html. */
+    private fun writeArena(f: java.io.File, loc: Location) {
+        fun n(v: Double) = String.format(java.util.Locale.ROOT, "%.3f", v).trimEnd('0').trimEnd('.')
+        val keys = (BUCKETS.map { it.key to it.label } + (1..5).map { "j$it" to "J+$it" })
+        val models = (HOURLY_MODELS + DAILY_MODELS).map { it.short }.distinct()
+        val sb = StringBuilder(64_000)
+        sb.append("{\"generated\":\"").append(java.time.Instant.now()).append("\",")
+        sb.append("\"altitude\":").append(loc.elevation?.let { n(it) } ?: "null").append(",")
+        sb.append("\"models\":[").append(models.joinToString(",") { "\"$it\"" }).append("],")
+        sb.append("\"leads\":[").append(keys.joinToString(",") { "{\"k\":\"" + it.first + "\",\"l\":\"" + it.second + "\",\"ref\":\"" + currentRef(it.first) + "\"}" }).append("],")
+        sb.append("\"rows\":[")
+        var first = true
+        for ((k, a) in accDay.entries.sortedBy { it.key }) {
+            if (a.nT == 0 && a.nR == 0) continue
+            val p = k.split("|")
+            if (!first) sb.append(',')
+            first = false
+            sb.append("[\"").append(p[2]).append("\",\"").append(p[0]).append("\",\"").append(p[1]).append("\",")
+                .append(a.nT).append(',').append(n(a.sumAbs)).append(',').append(n(a.sumErr)).append(',')
+                .append(a.nR).append(',').append(a.wetS).append(',').append(a.hitT).append(',').append(a.missT).append(',')
+                .append(a.faT).append(',').append(a.mwN).append(',').append(n(a.totM)).append(',').append(n(a.totS)).append(']')
+        }
+        sb.append("]}")
+        f.parentFile?.mkdirs()
+        f.writeText(sb.toString())
     }
 
     private fun writeCsv(f: java.io.File, loc: Location, grid: Map<String, Double?>, st: ModelCheck.Station) {

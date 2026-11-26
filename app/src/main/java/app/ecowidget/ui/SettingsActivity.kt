@@ -829,7 +829,7 @@ private fun SettingsScreen(tick: Int) {
                             val creds = Credentials(appKey, apiKey, Credentials.normalizeMac(mac))
                             scope.launch {
                                 leadCheck = withContext(Dispatchers.IO) {
-                                    runCatching { ModelLeadCheck.run(creds, loc, depth, java.io.File(java.io.File(ctx.cacheDir, "export"), "ecowidget-comparaison.csv")) { leadProgress = it } }
+                                    runCatching { ModelLeadCheck.run(creds, loc, depth, java.io.File(java.io.File(ctx.cacheDir, "export"), "ecowidget-comparaison.csv"), java.io.File(ctx.filesDir, ModelArenaActivity.DATA_FILE)) { leadProgress = it } }
                                         .getOrElse { ModelLeadCheck.LeadReport(listOf(OpenMeteoClient.describe(it)), emptyList()) }
                                 }
                                 leadBusy = false
@@ -844,6 +844,14 @@ private fun SettingsScreen(tick: Int) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                var arenaReady by remember { mutableStateOf(java.io.File(ctx.filesDir, ModelArenaActivity.DATA_FILE).exists()) }
+                if (!leadBusy && leadCheck != null) arenaReady = java.io.File(ctx.filesDir, ModelArenaActivity.DATA_FILE).exists()
+                if (arenaReady) {
+                    Button(
+                        onClick = { ctx.startActivity(android.content.Intent(ctx, ModelArenaActivity::class.java)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Ouvrir la vue graphique des modèles") }
                 }
                 leadCheck?.csv?.let { f ->
                     Button(onClick = { shareCsv(ctx, f) }, modifier = Modifier.fillMaxWidth()) {

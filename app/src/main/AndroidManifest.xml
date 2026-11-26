@@ -40,6 +40,11 @@
             android:exported="false"
             android:launchMode="singleTask" />
 
+        <!-- Vue graphique de la comparaison des modèles (page locale, sans réseau) -->
+        <activity
+            android:name=".ui.ModelArenaActivity"
+            android:exported="false" />
+
         <receiver
             android:name=".widget.WeatherWidgetReceiver"
             android:exported="true">
