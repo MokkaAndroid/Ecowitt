@@ -168,8 +168,11 @@ internal object AtmoData {
         fun neg(s: String) = d.neg(s)
         fun clock(sec: Long): Int = Instant.ofEpochSecond(sec).atZone(zone).hour
 
-        val lo = if (offline) d.f?.dayMin else (d.d?.dayMin ?: d.f?.dayMin)
-        val hi = d.dayMax
+        // Min et max prévus pour la journée (minuit à minuit), à défaut ceux déjà observés.
+        val midnight0 = DetailBuilder.midnight(i)
+        val dayT = d.hourly("temperature_2m", midnight0, midnight0 + 24 * H - 1).map { it.second }
+        val lo = dayT.minOrNull() ?: (if (offline) d.f?.dayMin else (d.d?.dayMin ?: d.f?.dayMin))
+        val hi = dayT.maxOrNull() ?: d.dayMax
         val cur: Double? = if (offline) hero.value.replace('−', '-').replace(',', '.').toDoubleOrNull() else d.temp
 
         // ── Vent et seconde pastille

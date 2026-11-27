@@ -291,18 +291,16 @@ internal object Atmo {
         val xr = vw - PX
         // Ressenti
         m.feel?.let { f -> runs(g, xr, bl(55f, 12f), listOf(Run("Ressenti ", 12f, 400, T2), Run(f, 12f, 600, TX)), right = true) }
-        // Min, barre, max
+        // Min et max prévus du jour, juste à droite de la température
         val lo = m.lo
         val hi = m.hi
         if (lo != null && hi != null) {
-            val ls = ng(lo)
-            val hs = ng(hi)
-            val lw = g.width(ls, 12f, 600)
-            val hw = g.width(hs, 12f, 600)
-            val x0 = xr - (lw + 7f + 92f + 7f + hw)
+            val tx = PX + tw + g.width("°", 28f, 500) + 8f
+            runs(g, tx, 79f, listOf(Run("max ", 10.5f, 400, T2), Run(ng(hi), 12f, 700, 0xFFFFB36B.toInt())))
+            runs(g, tx, 95f, listOf(Run("min ", 10.5f, 400, T2), Run(ng(lo), 12f, 700, 0xFF8EC9FF.toInt())))
+            // Barre : où se situe la température actuelle entre le min et le max
+            val bx = xr - 92f
             val cy = 75.5f
-            g.textBase(ls, x0, bl(cy, 12f), 12f, 600, 0xFF8EC9FF.toInt())
-            val bx = x0 + lw + 7f
             val gradient = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 shader = LinearGradient(bx, 0f, bx + 92f, 0f, intArrayOf(0xFF6CB6FF.toInt(), 0xFFF2C14E.toInt(), 0xFFFF8A4C.toInt()), floatArrayOf(0f, .5f, 1f), Shader.TileMode.CLAMP)
             }
@@ -312,7 +310,6 @@ internal object Atmo {
             val kx = bx + 92f * pos
             c.drawCircle(kx, cy, 6f, bFill(DARK))
             c.drawCircle(kx, cy, 4f, bFill(WHITE))
-            g.textBase(hs, bx + 92f + 7f, bl(cy, 12f), 12f, 600, 0xFFFFB36B.toInt())
         }
         // Pastilles : vent et information de la situation
         val cy = 97.2f
