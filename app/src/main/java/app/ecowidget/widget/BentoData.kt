@@ -35,10 +35,10 @@ internal class BData(val i: DetailInputs, val ageMin: Int?) {
     val now: Long = i.nowSec
     val zone = i.zone
 
-    private fun fm(v: Double, dec: Int): String = Metric.fmt(v, dec)
+    fun fm(v: Double, dec: Int): String = Metric.fmt(v, dec)
 
     /** Signe moins typographique. */
-    private fun neg(s: String): String = s.replace('-', '−')
+    fun neg(s: String): String = s.replace('-', '−')
 
     private fun signed(v: Double, dec: Int, unit: String = ""): String {
         val t = fm(v, dec)
@@ -46,11 +46,11 @@ internal class BData(val i: DetailInputs, val ageMin: Int?) {
         return neg((if (plus) "+" else "") + t + unit)
     }
 
-    private fun hourly(name: String, from: Long, to: Long): List<Pair<Long, Double>> = DetailBuilder.hourly(i, name, from, to)
+    fun hourly(name: String, from: Long, to: Long): List<Pair<Long, Double>> = DetailBuilder.hourly(i, name, from, to)
 
     private fun hourLabel(sec: Long): String = Instant.ofEpochSecond(sec).atZone(zone).hour.toString() + " h"
 
-    private fun hh(sec: Long): String = String.format(Locale.ROOT, "%02d", Instant.ofEpochSecond(sec).atZone(zone).hour)
+    fun hh(sec: Long): String = String.format(Locale.ROOT, "%02d", Instant.ofEpochSecond(sec).atZone(zone).hour)
 
     private fun sample(v: List<Double>, n: Int): List<Double> {
         if (v.size <= n) return v
@@ -67,10 +67,10 @@ internal class BData(val i: DetailInputs, val ageMin: Int?) {
     val soon: Boolean = rainNow || bins.any { it >= 0.1 }
 
     // Les cumuls horaires d'Open-Meteo portent l'heure de FIN de la période : la barre de l'heure en cours est datée de la prochaine heure pleine.
-    private val prec12: List<Pair<Long, Double>> = hourly("precipitation", now + 1, now + 13 * H).take(12)
-    private val probMap: Map<Long, Double> = DetailBuilder.hourlyMap(i, "precipitation_probability")
+    val prec12: List<Pair<Long, Double>> = hourly("precipitation", now + 1, now + 13 * H).take(12)
+    val probMap: Map<Long, Double> = DetailBuilder.hourlyMap(i, "precipitation_probability")
     val mm12: Double = prec12.sumOf { it.second }
-    private val snowH: List<Pair<Long, Double>> = hourly("snowfall", now + 1, now + 25 * H)
+    val snowH: List<Pair<Long, Double>> = hourly("snowfall", now + 1, now + 25 * H)
     val snowCm12: Double = snowH.take(12).sumOf { it.second }
     private val snowLike12: Boolean = run {
         val temps = DetailBuilder.hourlyMap(i, "temperature_2m")
@@ -79,8 +79,8 @@ internal class BData(val i: DetailInputs, val ageMin: Int?) {
         prec12.any { (t, mm) -> mm >= 0.1 && DetailBuilder.precipTone(i.altM, t, temps, sh, fz) == Tone.SNOW }
     }
 
-    private val tempSeries: List<Pair<Long, Double>> = hourly("temperature_2m", now - 3599, now + 14 * H)
-    private val fcTemps: List<Pair<Long, Double>> = tempSeries.filter { it.first > now }
+    val tempSeries: List<Pair<Long, Double>> = hourly("temperature_2m", now - 3599, now + 14 * H)
+    val fcTemps: List<Pair<Long, Double>> = tempSeries.filter { it.first > now }
     val frostMin: Double? = fcTemps.take(14).minOfOrNull { it.second }
 
     val uvNow: Double? = run {
@@ -89,7 +89,7 @@ internal class BData(val i: DetailInputs, val ageMin: Int?) {
         if (fc == null) st else if (st == null) fc else max(fc, st)
     }
     private val uvToday: List<Pair<Long, Double>> = DetailBuilder.midnight(i).let { m -> hourly("uv_index", m, m + 24 * H - 1) }
-    private val uvPeakSec: Long? = uvToday.maxByOrNull { it.second }?.takeIf { it.second >= 1.0 }?.first
+    val uvPeakSec: Long? = uvToday.maxByOrNull { it.second }?.takeIf { it.second >= 1.0 }?.first
     val uvDay: Boolean = (uvNow ?: 0.0) >= 0.5 || hourly("uv_index", now, now + 3 * H).any { it.second >= 1.5 }
 
     private fun stormCode(c: Int?): Boolean = c == 95 || c == 96 || c == 99
@@ -98,7 +98,7 @@ internal class BData(val i: DetailInputs, val ageMin: Int?) {
     } else {
         f?.hours?.firstOrNull { stormCode(it.code) }?.let { max(0, ((it.tSec - now) / 60).toInt()) }
     }
-    private val gustNow: Double = snap?.windGust ?: 0.0
+    val gustNow: Double = snap?.windGust ?: 0.0
     val isStorm: Boolean = (stormMin != null && stormMin <= 120) || (rate >= 7.5 && gustNow >= 40.0)
 
     /** Minutes avant l'orage / la pluie d'orage (0 : sur place). */
@@ -232,7 +232,7 @@ internal class BData(val i: DetailInputs, val ageMin: Int?) {
         return TdAir("Air", fm(aqi, 0), word, "indice AQI", (aqi / 100.0).toFloat(), BPal.SCALE5[bandIdx(aqi)])
     }
 
-    private fun pollenLevel(g: Double): Int = when {
+    fun pollenLevel(g: Double): Int = when {
         g < 1.0 -> 0
         g < 10.0 -> 1
         g < 30.0 -> 2
@@ -262,7 +262,7 @@ internal class BData(val i: DetailInputs, val ageMin: Int?) {
 
     // ───────────────────────────── Prévisions ─────────────────────────────
 
-    private fun wxIcon(code: Int?): Pair<Int, Int> {
+    fun wxIcon(code: Int?): Pair<Int, Int> {
         val col = when (code) {
             0, 1 -> 0xFFFFD166
             2 -> 0xFFFFD9A0
@@ -402,7 +402,7 @@ internal class BData(val i: DetailInputs, val ageMin: Int?) {
 
     // ───────────────────────────── Hors ligne, orage ─────────────────────────────
 
-    private fun sinceText(): String {
+    fun sinceText(): String {
         val m = ageMin ?: 0
         return if (m < 60) "$m min" else "${m / 60} h " + String.format(Locale.ROOT, "%02d", m % 60)
     }

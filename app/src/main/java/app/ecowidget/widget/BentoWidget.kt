@@ -56,7 +56,7 @@ private fun widen(c: BCell, extra: Float): BCell =
 
 /** Ouvre le détail d'un sujet : dans le widget (mode « Tuiles + détail ») ou en fiche plein écran. */
 @Composable
-private fun tileAction(appWidgetId: Int, inlineMode: Boolean, tile: Tile, tab: Int): Action =
+internal fun tileAction(appWidgetId: Int, inlineMode: Boolean, tile: Tile, tab: Int): Action =
     if (inlineMode && W3Pages.has(tile)) {
         actionRunCallback<OpenTileCallback>(actionParametersOf(KEY_TILE to tile.id, KEY_TAB to tab.toString()))
     } else {
@@ -65,7 +65,7 @@ private fun tileAction(appWidgetId: Int, inlineMode: Boolean, tile: Tile, tab: I
 
 /** Zone transparente de `w` × `h` dp. */
 @Composable
-private fun Zone(w: Float, h: Float, desc: String, action: Action?) {
+internal fun Zone(w: Float, h: Float, desc: String, action: Action?) {
     var m = GlanceModifier.width(w.dp).height(h.dp)
     if (action != null) m = m.clickable(action)
     Box(modifier = m.semantics { contentDescription = desc }) {}

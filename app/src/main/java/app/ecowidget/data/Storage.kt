@@ -257,6 +257,16 @@ object Storage {
 
     fun widgetMode(ctx: Context): WidgetMode = WidgetMode.fromId(plain(ctx).getInt("widget_mode", WidgetMode.CLASSIC.id))
 
+    const val STYLE_ATMO = 0
+    const val STYLE_BENTO = 1
+
+    /** Présentation des modes à tuiles : Atmosphère (0, par défaut) ou Bento (1). */
+    fun widgetStyle(ctx: Context): Int = plain(ctx).getInt("widget_style", STYLE_ATMO)
+
+    fun setWidgetStyle(ctx: Context, style: Int) {
+        plain(ctx).edit().putInt("widget_style", style).apply()
+    }
+
     fun setWidgetMode(ctx: Context, mode: WidgetMode) {
         plain(ctx).edit().putInt("widget_mode", mode.id).apply()
         // Changer de mode ferme tous les détails ouverts.

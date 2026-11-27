@@ -192,6 +192,7 @@ private fun SettingsScreen(tick: Int) {
     var mfLines by remember { mutableStateOf<List<MeteoFranceClient.TestLine>>(emptyList()) }
     var interval by remember { mutableIntStateOf(Storage.intervalMinutes(ctx)) }
     var widgetMode by remember { mutableStateOf(Storage.widgetMode(ctx)) }
+    var widgetStyle by remember { mutableStateOf(Storage.widgetStyle(ctx)) }
 
     var location by remember { mutableStateOf(Storage.location(ctx)) }
     var query by remember { mutableStateOf("") }
@@ -657,6 +658,24 @@ private fun SettingsScreen(tick: Int) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (widgetMode != WidgetMode.CLASSIC) {
+                    Text("Style des tuiles :", style = MaterialTheme.typography.bodyMedium)
+                    listOf(
+                        Storage.STYLE_ATMO to "Atmosphère : colonne unique avec heures, jours, air et pollens (dès 4×6 cases environ ; plus petit, le Bento s'affiche)",
+                        Storage.STYLE_BENTO to "Bento : grille de tuiles",
+                    ).forEach { (id, label) ->
+                        FilterChip(
+                            selected = widgetStyle == id,
+                            onClick = {
+                                if (widgetStyle != id) {
+                                    widgetStyle = id
+                                    Storage.setWidgetStyle(ctx, id)
+                                    scope.launch { WidgetRefresh.all(ctx) }
+                                }
+                            },
+                            label = { Text(label) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     Text(
                         "Les tuiles tiennent à partir de 4×2 cases (5 tuiles) ; en 4×3 ou plus, les 7 tuiles s'affichent. " +
                             "Le détail dans le widget demande au moins 4×3 ; en dessous, un appui ouvre la fiche plein écran.",

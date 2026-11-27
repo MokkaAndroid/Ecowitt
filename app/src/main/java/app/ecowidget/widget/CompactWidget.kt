@@ -130,15 +130,35 @@ internal fun CompactBody(
     // Grille Bento : calculée ici, car sa marge (12 dp) n'est pas celle du détail.
     val padX = if (openTile == null) Bento.PAD else PAD_X.toFloat()
     val padY = if (openTile == null) Bento.PAD else PAD_Y.toFloat()
-    val plan = if (snap != null && openTile == null) {
+    val ageMin: Int? = if (snap != null) {
         val obsMs = snap.observedAtSec?.times(1000) ?: state.fetchedAtMs
-        val ageMin = if (obsMs > 0) ((System.currentTimeMillis() - obsMs) / 60_000).toInt().coerceAtLeast(0) else null
+        if (obsMs > 0) ((System.currentTimeMillis() - obsMs) / 60_000).toInt().coerceAtLeast(0) else null
+    } else {
+        null
+    }
+    // Style « Atmosphère » (par défaut) : une seule colonne ; si le widget est trop petit, le Bento prend le relais.
+    val atmo = if (snap != null && openTile == null && Storage.widgetStyle(ctx) == Storage.STYLE_ATMO) {
+        Atmo.plan(
+            ctx, inputs, statusOf(state, config.showTime), place,
+            size.width.value - 2f * Atmo.PAD, size.height.value - 2f * Atmo.PAD, ageMin,
+        )
+    } else {
+        null
+    }
+    val plan = if (atmo == null && snap != null && openTile == null) {
         Bento.plan(
             ctx, inputs, statusOf(state, config.showTime), place,
             size.width.value - 2f * Bento.PAD, size.height.value - 2f * Bento.PAD, ageMin,
         )
     } else {
         null
+    }
+
+    if (atmo != null) {
+        Box(modifier = GlanceModifier.fillMaxSize().clickable(rootAction)) {
+            AtmoView(appWidgetId, inlineOk, atmo, Atmo.render(ctx, atmo, ctx.resources.displayMetrics.density))
+        }
+        return
     }
 
     Box(
