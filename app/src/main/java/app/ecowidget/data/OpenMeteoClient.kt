@@ -44,6 +44,7 @@ object OpenMeteoClient {
 
     /** Clé ajoutée à la réponse quand elle a dû être demandée en plusieurs requêtes plus petites (information, pas une erreur). */
     const val NOTE_KEY = "_note"
+    const val SHORT_TERM_KEY = "_short_term_ch1"
 
     /** Refus qui visent la requête (taille, poids, filtre du serveur) plutôt qu'une variable : on la découpe en requêtes plus petites. */
     private val SPLIT_CODES = setOf(403, 413, 414, 431)
@@ -122,7 +123,52 @@ object OpenMeteoClient {
                 }
             }
         }
+        overlayShortTermTemperature(loc, json)
         return json.also { it.put(AltitudeCorrection.RAW_KEY, true) }
+    }
+
+    /** Pendant les 12 prochaines heures, la température horaire vient d'ICON-CH1 (le plus juste d'après la comparaison aux mesures). */
+    private const val SHORT_TERM_HOURS = 12
+
+    /**
+     * Remplace `temperature_2m` horaire des 12 prochaines heures par celle d'ICON-CH1 (MétéoSuisse, 1 km). Valeurs brutes du point
+     * de grille, ramenées à l'altitude du point de la réponse principale (même gradient que la correction d'altitude) : la
+     * correction appliquée ensuite reste la même. Si ICON-CH1 est indisponible ou refusé, les prévisions restent celles du modèle
+     * automatique.
+     */
+    private fun overlayShortTermTemperature(loc: Location, json: JSONObject) {
+        try {
+            val mainH = json.optJSONObject("hourly") ?: return
+            val mt = mainH.optJSONArray("time") ?: return
+            val mv = mainH.optJSONArray("temperature_2m") ?: return
+            val b = builder("api.open-meteo.com", "v1/forecast", loc, false, 2)
+                .appendQueryParameter("hourly", "temperature_2m")
+                .appendQueryParameter("models", "meteoswiss_icon_ch1")
+            val ch = getJson(b.build().toString())
+            val ct = ch.optJSONObject("hourly")?.optJSONArray("time") ?: return
+            val cv = ch.optJSONObject("hourly")?.optJSONArray("temperature_2m") ?: return
+            val shift = run {
+                val a = ch.optDouble("elevation", Double.NaN)
+                val m = json.optDouble("elevation", Double.NaN)
+                if (a.isNaN() || m.isNaN()) 0.0 else (a - m) * AltitudeCorrection.LAPSE_C_PER_M
+            }
+            val byTime = HashMap<Long, Double>()
+            for (i in 0 until ct.length()) {
+                if (!cv.isNull(i)) byTime[ct.optLong(i)] = cv.optDouble(i)
+            }
+            val now = System.currentTimeMillis() / 1000
+            var n = 0
+            for (i in 0 until mt.length()) {
+                val t = mt.optLong(i)
+                if (t <= now || t > now + SHORT_TERM_HOURS * 3600L) continue
+                val v = byTime[t] ?: continue
+                mv.put(i, v + shift)
+                n++
+            }
+            if (n > 0) json.put(SHORT_TERM_KEY, n)
+        } catch (e: Exception) {
+            // ICON-CH1 indisponible : on garde les valeurs du modèle automatique
+        }
     }
 
     /**
