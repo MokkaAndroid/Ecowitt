@@ -660,7 +660,7 @@ private fun SettingsScreen(tick: Int) {
                 if (widgetMode != WidgetMode.CLASSIC) {
                     Text("Style des tuiles :", style = MaterialTheme.typography.bodyMedium)
                     listOf(
-                        Storage.STYLE_ATMO to "Atmosphère : colonne unique avec heures, jours, air et pollens (dès 4×6 cases environ ; plus petit, le Bento s'affiche)",
+                        Storage.STYLE_ATMO to "Atmosphère : colonne unique avec heures, jours, air et pollens (dès 4×5 cases environ, tout se réduit pour tenir ; plus petit, le Bento s'affiche)",
                         Storage.STYLE_BENTO to "Bento : grille de tuiles",
                     ).forEach { (id, label) ->
                         FilterChip(

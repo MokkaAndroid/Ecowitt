@@ -44,7 +44,8 @@ internal class ALay(
     val yBottom: Float,
 )
 
-internal class AtmoPlan(val w: Float, val h: Float, val model: AModel, val lay: ALay, val zones: List<AZone>)
+/** `w` × `h` : zone intérieure réelle (dp). `scale` : réduction uniforme appliquée au dessin (1 = taille des maquettes). */
+internal class AtmoPlan(val w: Float, val h: Float, val scale: Float, val model: AModel, val lay: ALay, val zones: List<AZone>)
 
 /**
  * Widget « Atmosphère » : une seule image dessinée (comme le Bento) avec des zones cliquables par-dessus.
@@ -60,6 +61,7 @@ internal object Atmo {
     private const val DAYS_H = 72f
     private const val BOTTOM_H = 100f
     private const val MIN_W = 250f
+    private const val MIN_SCALE = 0.78f
     private const val MAX_PIXELS = 1_500_000f
 
     private val TX = 0xFFEEF3FA.toInt()
@@ -99,10 +101,15 @@ internal object Atmo {
         var withDays = m.days.size >= 5
         var withHours = m.hours.size >= 5
         fun need(): Float = fixed + base + (if (withHours) GAP + HOURS_H else 0f) + (if (withDays) GAP + DAYS_H else 0f)
-        if (need() > h && withDays) withDays = false
-        if (need() > h && withHours) withHours = false
-        if (need() > h) return null
-        val modH = base + min(40f, h - need()).coerceAtLeast(0f)
+        // Trop haut pour la taille des maquettes : on réduit tout, uniformément, jusqu'à MIN_SCALE ; au-delà, on retire des sections.
+        fun scaleFor(): Float = min(1f, h / need())
+        if (scaleFor() < MIN_SCALE && withDays) withDays = false
+        if (scaleFor() < MIN_SCALE && withHours) withHours = false
+        if (scaleFor() < MIN_SCALE) return null
+        val s = scaleFor()
+        val vw = w / s
+        val vh = h / s
+        val modH = base + min(40f, vh - need()).coerceAtLeast(0f)
 
         val yHero = HEADER_H + GAP
         val yMod = yHero + HERO_H + GAP
@@ -111,14 +118,17 @@ internal object Atmo {
         val yDays = if (withDays) y.also { y += DAYS_H + GAP } else null
         val lay = ALay(yHero, yMod, modH, yHours, yDays, y)
 
-        // Zones, dans le repère du widget (marge comprise).
+        // Zones : calculées dans le repère du dessin, converties en dp réels (marge comprise).
         val z = ArrayList<AZone>()
-        val chipW = if (w >= 300f) 122f else 106f
-        z.add(AZone(PAD + w - 30f, PAD, 30f, HEADER_H, "Actualiser", null, 0))
-        z.add(AZone(PAD, PAD + yHero, w - chipW - GAP, HERO_H, "Température : détail", Tile.TEMP, 0))
+        fun zone(x: Float, yy: Float, ww: Float, hh: Float, desc: String, tile: Tile?, tab: Int) {
+            z.add(AZone(PAD + x * s, PAD + yy * s, ww * s, hh * s, desc, tile, tab))
+        }
+        val chipW = if (vw >= 300f) 122f else 106f
+        zone(vw - 30f, 0f, 30f, HEADER_H, "Actualiser", null, 0)
+        zone(0f, yHero, vw - chipW - GAP, HERO_H, "Température : détail", Tile.TEMP, 0)
         val chipH = (HERO_H - GAP) / 2f
         m.chips.forEachIndexed { k, c ->
-            z.add(AZone(PAD + w - chipW, PAD + yHero + k * (chipH + GAP), chipW, chipH, c.label + " : détail", c.tile, 0))
+            zone(vw - chipW, yHero + k * (chipH + GAP), chipW, chipH, c.label + " : détail", c.tile, 0)
         }
         val modTile: Tile? = when {
             m.mod is AMod.Rain && m.scn == Scn.WINTER -> Tile.SNOW
@@ -126,13 +136,13 @@ internal object Atmo {
             m.mod is AMod.Curve && m.mod.retry -> null
             else -> Tile.FORECAST
         }
-        z.add(AZone(PAD, PAD + yMod, w, modH, "Situation : détail", modTile, if (modTile == Tile.RAIN) 1 else 0))
-        if (yHours != null) z.add(AZone(PAD, PAD + yHours, w, HOURS_H, "Prochaines heures", Tile.FORECAST, 0))
-        if (yDays != null) z.add(AZone(PAD, PAD + yDays, w, DAYS_H, "Prochains jours", Tile.FORECAST, 1))
-        val airW = ((w - GAP) * 0.55f)
-        z.add(AZone(PAD, PAD + lay.yBottom, airW, BOTTOM_H, "Qualité de l'air : détail", Tile.AIR, 0))
-        z.add(AZone(PAD + airW + GAP, PAD + lay.yBottom, w - airW - GAP, BOTTOM_H, "Pollens : détail", Tile.AIR, 0))
-        return AtmoPlan(w, h, m, lay, z)
+        zone(0f, yMod, vw, modH, "Situation : détail", modTile, if (modTile == Tile.RAIN) 1 else 0)
+        if (yHours != null) zone(0f, yHours, vw, HOURS_H, "Prochaines heures", Tile.FORECAST, 0)
+        if (yDays != null) zone(0f, yDays, vw, DAYS_H, "Prochains jours", Tile.FORECAST, 1)
+        val airW = (vw - GAP) * 0.55f
+        zone(0f, lay.yBottom, airW, BOTTOM_H, "Qualité de l'air : détail", Tile.AIR, 0)
+        zone(airW + GAP, lay.yBottom, vw - airW - GAP, BOTTOM_H, "Pollens : détail", Tile.AIR, 0)
+        return AtmoPlan(w, h, s, m, lay, z)
     }
 
     // ───────────────────────────── Dessin ─────────────────────────────
@@ -144,12 +154,15 @@ internal object Atmo {
         val bmp = Bitmap.createBitmap(max(1, (fw * k).roundToInt()), max(1, (fh * k).roundToInt()), Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         c.scale(k, k)
-        val g = BGx(ctx, BFonts.get(ctx), c, k)
         val m = plan.model
         val th = theme(m.scn)
         background(c, fw, fh, th)
         c.translate(PAD, PAD)
-        val w = plan.w
+        // Réduction uniforme (widget plus bas que les maquettes) : le dessin se fait dans un repère plus grand.
+        val sc = plan.scale
+        c.scale(sc, sc)
+        val g = BGx(ctx, BFonts.get(ctx), c, k * sc)
+        val w = plan.w / sc
         guard { header(g, m, w) }
         guard { hero(g, m, w, plan.lay.yHero, th) }
         guard { module(g, m, w, plan.lay.yMod, plan.lay.modH, th) }
