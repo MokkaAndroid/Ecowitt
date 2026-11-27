@@ -1,16 +1,18 @@
 package app.ecowidget.widget
 
 import android.content.Context
+import app.ecowidget.R
 import app.ecowidget.data.DetailBuilder
 import app.ecowidget.data.DetailInputs
 import app.ecowidget.data.Metric
-import app.ecowidget.data.OmCatalog
 import app.ecowidget.data.OmFormat
 import app.ecowidget.data.OmSection
 import app.ecowidget.data.RainColors
-import app.ecowidget.data.Tile
 import app.ecowidget.data.Tone
+import app.ecowidget.data.WeatherCodes
 import java.time.Instant
+import java.time.format.TextStyle
+import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -18,76 +20,134 @@ import kotlin.math.roundToInt
 
 private const val H = 3600L
 
+/** Palette des maquettes « Air et pollens ». */
+internal object AP {
+    val TX = 0xFFEEF3FA.toInt()
+    val T2 = 0xFFAAB5C5.toInt()
+    val BLUE = 0xFF8DB2FF.toInt()
+    val TEAL = 0xFF5EE0CF.toInt()
+    val SUN = 0xFFFFB36B.toInt()
+    val SNOW = 0xFFBFE3FF.toInt()
+    val AMB = 0xFFFFC857.toInt()
+    val GR = 0xFFA9B3C2.toInt()
+    val ICE = 0xFF9CD4FF.toInt()
+    val RED = 0xFFF0566B.toInt()
+    val ORANGE = 0xFFF2A24E.toInt()
+    val YEL = 0xFFF2C14E.toInt()
+    val GREEN = 0xFF7EE0A5.toInt()
+    val IC = 0xFFEAF6FF.toInt()
+    val RC = 0xFF4F9BFF.toInt()
+    val LIMIT = 0xFFFFE08A.toInt()
+    val DARK = 0xFF0B1220.toInt()
+    val EAQ = intArrayOf(0xFF50F0E6.toInt(), 0xFF50CCAA.toInt(), 0xFFF0E641.toInt(), 0xFFFF5050.toInt(), 0xFF960032.toInt(), 0xFF7D2181.toInt())
+    val EAQ_WORDS = listOf("Bon", "Correct", "Moyen", "Médiocre", "Mauvais", "Très mauvais")
+    val LV = intArrayOf(0x22FFFFFF, 0xFF7EE0A5.toInt(), 0xFFF2C14E.toInt(), 0xFFF2894E.toInt(), 0xFFF0566B.toInt())
+
+    fun rainColor(v: Double): Int = when {
+        v < 1.0 -> 0xFF8EC9FF.toInt()
+        v < 2.5 -> 0xFF4F9BFF.toInt()
+        v < 5.0 -> 0xFF8B6CF2.toInt()
+        else -> 0xFFF06BB0.toInt()
+    }
+}
+
 // ───────────────────────────── Données du widget « Atmosphère » ─────────────────────────────
 
-internal class AChip(val label: String, val value: String, val tile: Tile?)
-internal class AHour(val label: String, val icon: Int, val iconColor: Int, val temp: String, val sub: String)
-internal class ADay(val label: String, val icon: Int, val iconColor: Int, val hi: String, val lo: String, val sub: String, val today: Boolean)
-internal class APol(val name: String, val value: String, val frac: Float, val band: Int)
-internal class AAir(val aqi: Int, val word: String, val band: Int, val pols: List<APol>)
+/** `icon` null : pastille verte « à jour ». */
+internal class APill(val text: String, val icon: Int?, val tint: Int)
 
-/** `rows` : nom + niveau 0 à 4 (nombre de points allumés). */
-internal class APollen(val rows: List<Pair<String, Int>>, val summary: String, val summaryLevel: Int, val message: String?, val storm: Boolean)
+internal class AWind(val speed: String, val deg: Float?, val dir: String)
+
+/** Seconde pastille sous la température : texte normal + valeur en gras (colorée si `boldColor`). */
+internal class AChip2(val pre: String, val bold: String, val boldColor: Int?)
+
+internal class AHour(val label: String, val icon: Int, val iconColor: Int, val temp: String, val sub: String, val subColor: Int)
+internal class ADay(val label: String, val icon: Int, val iconColor: Int, val hi: String, val lo: String, val sub: String, val subColor: Int)
+internal class APol(val name: String, val value: String, val frac: Float)
+internal class AAir(val v: Int, val label: String, val color: Int, val pos: Float, val pols: List<APol>)
+internal class APollen(val rows: List<Pair<String, Int>>, val chip: String, val chipColor: Int, val off: Boolean, val note: String)
 
 /**
- * Un graphique à barres de pluie (ou neige). `phases` : 0 pluie, 1 mêlée, 2 neige. `ticks` : position (0 à 1) et texte.
- * `limit` : limite pluie / neige (m) pour chaque barre, ou null.
+ * Un graphique à barres. `phases` : 0 pluie, 1 mêlée, 2 neige. `ticks` : position (0 à 1) + texte ;
+ * `tickEdge` : le dernier repère est aligné à droite (minutes) ; sinon tous centrés (heures).
  */
 internal class APanel(
     val title: String,
-    val cumul: String,
+    val total: String,
+    val totalColor: Int,
     val vals: List<Double>,
     val phases: List<Int>,
+    val vmax: Double,
+    val flip: Int?,
+    val lim: List<Double>?,
     val ticks: List<Pair<Float, String>>,
-    val limit: List<Double>?,
-    val flake: Int?,
-    val top: Double,
+    val tickEdge: Boolean,
 )
 
-internal class AGauge(val limit: Double, val station: Double, val top: Double)
+internal class AGauge(val limit: Double, val station: Double)
 
 internal sealed class AMod {
-    /** Courbe de température sur 24 h, avec titre, repères horaires, seuil, jauge UV ou bouton « Réessayer ». */
+    /** Courbe 24 h : « Aucune pluie avant X h » ou, en hiver sans précipitation, le gel prévu. */
     class Curve(
+        val icon: Int,
         val title: String,
-        val right: String,
+        val rightPre: String,
+        val rightBold: String,
+        val rightPost: String,
         val obs: List<Double>,
         val fc: List<Double>,
-        val ticks: List<Pair<Int, String>>,
-        val thr: Double?,
+        val axis: List<String>,
+        val mark: Int?,
         val zero: Boolean,
-        val uv: Double?,
-        val retry: Boolean,
     ) : AMod()
 
-    /** Pluie ou neige : deux graphiques, et la jauge d'altitude en hiver. */
+    class Heat(
+        val uv: Double,
+        val uvWord: String,
+        val peak: String,
+        val obs: List<Double>,
+        val fc: List<Double>,
+        val axis: List<String>,
+        val mark: Int?,
+    ) : AMod()
+
+    class Offline(val sub: String, val obs: List<Double>, val fc: List<Double>) : AMod()
+
     class Rain(
         val title: String,
-        val right: String,
+        val sub: String,
+        val bigRight: String,
+        val bigUnit: String,
+        val smallTop: String,
         val minutes: APanel,
         val hours: APanel,
-        val gauge: AGauge?,
-        val chips: List<String>,
     ) : AMod()
 
-    /** Orage : trois blocs de chiffres (libellé, valeur, précision) + les barres des 60 prochaines minutes. */
-    class Storm(val stats: List<Triple<String, String, String>>, val bins: List<Double>) : AMod()
+    class Snow(
+        val title: String,
+        val sub: String,
+        val chips: List<String>,
+        val gauge: AGauge?,
+        val minutes: APanel,
+        val hours: APanel,
+    ) : AMod()
+
+    class Storm(val minutes: Int, val stats: List<Triple<String, String, Int>>) : AMod()
 }
 
 internal class AModel(
     val scn: Scn,
     val place: String,
     val alt: String,
-    val tail: String,
-    val warn: Boolean,
-    val pill: BentoPill?,
+    val pill: APill,
     val heroValue: String,
     val feel: String?,
     val lo: Double?,
     val hi: Double?,
     val cur: Double?,
     val offline: Boolean,
-    val chips: List<AChip>,
+    val wind: AWind,
+    val chip2: AChip2,
     val hours: List<AHour>,
     val days: List<ADay>,
     val air: AAir?,
@@ -97,7 +157,7 @@ internal class AModel(
 
 internal object AtmoData {
 
-    fun build(ctx: Context, i: DetailInputs, status: Status, placeName: String?, ageMin: Int?): AModel? {
+    fun build(ctx: Context, i: DetailInputs, ageMin: Int?, placeName: String?): AModel? {
         val d = BData(i, ageMin)
         val scn = BentoState.resolve(ctx, d.wanted(), System.currentTimeMillis())
         val hero = d.hero(scn) ?: return null
@@ -108,12 +168,11 @@ internal object AtmoData {
         fun neg(s: String) = d.neg(s)
         fun clock(sec: Long): Int = Instant.ofEpochSecond(sec).atZone(zone).hour
 
-        // ── Température du héros
         val lo = if (offline) d.f?.dayMin else (d.d?.dayMin ?: d.f?.dayMin)
         val hi = d.dayMax
         val cur: Double? = if (offline) hero.value.replace('−', '-').replace(',', '.').toDoubleOrNull() else d.temp
 
-        // ── Pastilles sous la température
+        // ── Vent et seconde pastille
         val windKmh: Double?
         val windDir: Double?
         if (offline) {
@@ -123,124 +182,205 @@ internal object AtmoData {
             windKmh = d.snap?.windSpeed
             windDir = d.snap?.windDir
         }
-        val windTxt = windKmh?.let { fm(it, 0) + " km/h" + (windDir?.let { dd -> " " + Metric.cardinal(dd) } ?: "") } ?: "—"
+        val wind = AWind(windKmh?.let { fm(it, 0) + " km/h" } ?: "— km/h", windDir?.toFloat(), windDir?.let { Metric.cardinal(it) } ?: "")
         val gust = max(d.gustNow, d.hourly("wind_gusts_10m", now - 3599, now + 2 * H).maxOfOrNull { it.second } ?: 0.0)
-        val chip2: AChip = when (scn) {
-            Scn.DRY -> AChip("UV", d.uvNow?.let { fm(it, 0) } ?: "—", Tile.SUN)
-            Scn.ANNOUNCED -> AChip("Cumul 12 h", fm(d.mm12, 1) + " mm", Tile.RAIN)
-            Scn.RAIN -> AChip("Rafale", if (gust > 0.0) fm(gust, 0) + " km/h" else "—", Tile.WIND)
-            Scn.WINTER -> AChip("Neige", fm(max(d.snowCm12, 0.0), 0) + " cm", Tile.SNOW)
-            Scn.HEAT -> AChip("Nuit min", d.frostMin?.let { neg(fm(it, 0)) + "°" } ?: "—", Tile.TEMP)
-            Scn.OFFLINE -> AChip("Cumul 12 h", fm(d.mm12, 1) + " mm", Tile.FORECAST)
-            Scn.STORM -> AChip("Rafale", if (gust > 0.0) fm(gust, 0) + " km/h" else "—", Tile.WIND)
+        val nextTemp = d.hourly("temperature_2m", now + 1, now + 2 * H).firstOrNull()
+        val chip2 = when (scn) {
+            Scn.DRY -> AChip2("UV " + (d.uvNow?.let { fm(it, 0) } ?: "—"), "", null)
+            Scn.ANNOUNCED -> AChip2("Cumul 12 h ", fm(d.mm12, 1) + " mm", null)
+            Scn.RAIN -> AChip2("Rafale ", if (gust > 0.0) fm(gust, 0) else "—", null)
+            Scn.WINTER -> AChip2("Neige ", fm(max(d.snowCm12, 0.0), 0) + " cm", null)
+            Scn.HEAT -> AChip2("Nuit min ", d.frostMin?.let { neg(fm(it, 0)) + "°" } ?: "—", null)
+            Scn.OFFLINE -> AChip2(
+                "Prévu " + (nextTemp?.let { clock(it.first).toString() } ?: "—") + " h ",
+                nextTemp?.let { neg(fm(it.second, 1)) + "°" } ?: "—", null,
+            )
+            Scn.STORM -> AChip2("Rafale ", if (gust > 0.0) fm(gust, 0) else "—", AP.AMB)
         }
-        val chips = listOf(AChip("Vent", windTxt, Tile.WIND), chip2)
 
-        // ── Prochaines heures
+        // ── Pastille d'en-tête
+        val pillData = if (scn == Scn.DRY) null else d.pill(scn)
+        val ageTxt = ageMin?.let { if (it >= 60) "il y a " + it / 60 + " h" else "il y a " + max(1, it) + " min" } ?: "à jour"
+        val pill = if (pillData != null) APill(pillData.text, pillData.icon, pillData.tint) else APill(ageTxt, null, AP.GREEN)
+
+        // ── Prochaines heures : l'heure en cours (« Maint. ») puis les six suivantes
         val precMap = DetailBuilder.hourlyMap(i, "precipitation")
         val snowMap = DetailBuilder.hourlyMap(i, "snowfall")
-        val windMap = DetailBuilder.hourlyMap(i, "wind_speed_10m")
         val gustMap = DetailBuilder.hourlyMap(i, "wind_gusts_10m")
+        val windMap = DetailBuilder.hourlyMap(i, "wind_speed_10m")
         val uvMap = DetailBuilder.hourlyMap(i, "uv_index")
-        val hours = d.f?.hours.orEmpty().filter { it.tSec > now }.take(7).map { hp ->
+        val allH = d.f?.hours.orEmpty()
+        val i0 = allH.indexOfLast { it.tSec <= now }.coerceAtLeast(0)
+        val hours = allH.drop(i0).take(7).mapIndexed { k, hp ->
             val t = hp.tSec
             val pr = precMap[t + H]
             val sn = snowMap[t + H]
-            val pop = hp.popPct
-            val popTxt = if (pop != null && pop >= 20.0) fm(pop, 0) + " %" else ""
-            val sub = when (scn) {
-                Scn.DRY -> windMap[t]?.let { fm(it, 0) + " km/h" } ?: ""
-                Scn.ANNOUNCED, Scn.RAIN -> if (pr != null && pr >= 0.05) fm(pr, 1) + " mm" else popTxt
-                Scn.WINTER -> when {
-                    sn != null && sn >= 0.1 -> fm(sn, 1) + " cm"
-                    pr != null && pr >= 0.05 -> fm(pr, 1) + " mm"
-                    else -> ""
+            var sub: String
+            var sc = AP.T2
+            when (scn) {
+                Scn.DRY -> sub = windMap[t]?.let { fm(it, 0) + " km/h" } ?: ""
+                Scn.ANNOUNCED, Scn.RAIN -> {
+                    val v = pr ?: 0.0
+                    sub = if (v >= 0.05) fm(v, 1) + " mm" else "0 mm"
+                    if (v >= 0.05) sc = if (v < 1.0) AP.BLUE else AP.rainColor(v)
                 }
-                Scn.HEAT -> uvMap[t]?.takeIf { it >= 1.0 }?.let { "UV " + fm(it, 0) } ?: ""
-                Scn.STORM -> gustMap[t]?.let { fm(it, 0) + " km/h" } ?: ""
-                Scn.OFFLINE -> popTxt
+                Scn.WINTER -> {
+                    val frost = (hp.temp ?: 1.0) <= -2.0
+                    if (sn != null && sn >= 0.1) {
+                        sub = fm(sn, 0) + " cm"
+                        sc = AP.SNOW
+                    } else if (frost) {
+                        sub = "gel"
+                        sc = AP.ICE
+                    } else {
+                        sub = "0 cm"
+                    }
+                }
+                Scn.HEAT -> {
+                    val u = uvMap[t] ?: 0.0
+                    sub = "UV " + fm(u, 0)
+                    sc = when {
+                        u >= 8 -> AP.RED
+                        u >= 6 -> AP.ORANGE
+                        u >= 4 -> AP.YEL
+                        u >= 1 -> AP.GREEN
+                        else -> AP.T2
+                    }
+                }
+                Scn.STORM -> {
+                    val gv = gustMap[t] ?: 0.0
+                    sub = fm(gv, 0) + " km/h"
+                    sc = if (gv >= 55) AP.RED else if (gv >= 35) AP.AMB else AP.T2
+                }
+                Scn.OFFLINE -> {
+                    sub = "prévu"
+                    sc = AP.GR
+                }
             }
-            val (ic, col) = d.wxIcon(hp.code)
-            AHour(clock(t).toString() + " h", ic, col, hp.temp?.let { neg(fm(it, 0)) + "°" } ?: "—", sub)
+            val night = !hp.isDay && (hp.code == 0 || hp.code == 1)
+            val ic = if (night) R.drawable.ic_wx_moon else WeatherCodes.icon(hp.code, hp.isDay)
+            val col = if (offline) AP.GR else wxColor(hp.code, scn, night)
+            AHour(if (k == 0) "Maint." else clock(t).toString() + " h", ic, col, hp.temp?.let { neg(fm(it, 0)) + "°" } ?: "—", sub, sc)
         }
 
-        // ── Cinq jours
+        // ── Cinq jours, à partir de demain
+        val tmx = DetailBuilder.daily(i, "temperature_2m_max")
+        val tmn = DetailBuilder.daily(i, "temperature_2m_min")
+        val codes = DetailBuilder.daily(i, "weather_code")
         val snowSum = DetailBuilder.daily(i, "snowfall_sum")
         val rainSum = DetailBuilder.daily(i, "precipitation_sum")
         val uvMax = DetailBuilder.daily(i, "uv_index_max")
-        val days = d.week()?.days.orEmpty().take(5).mapIndexed { k, w ->
-            val sn = DetailBuilder.dayAt(snowSum, i, k)
-            val rn = DetailBuilder.dayAt(rainSum, i, k)
-            val uv = DetailBuilder.dayAt(uvMax, i, k)
-            val sub = when {
-                sn != null && sn >= 0.5 -> fm(sn, 0) + " cm"
-                rn != null && rn >= 0.2 -> fm(rn, if (rn < 10.0) 1 else 0) + " mm"
-                scn == Scn.HEAT && uv != null && uv >= 1.0 -> "UV " + fm(uv, 0)
-                else -> ""
+        val today = tmx.indexOfLast { it.first <= now }
+        val days = ArrayList<ADay>()
+        if (today >= 0) {
+            for (k in 1..5) {
+                val t = tmx.getOrNull(today + k) ?: break
+                val hiD = t.second ?: break
+                val loD = tmn.getOrNull(today + k)?.second ?: break
+                val code = codes.getOrNull(today + k)?.second?.roundToInt()
+                val sn = DetailBuilder.dayAt(snowSum, i, k)
+                val rn = DetailBuilder.dayAt(rainSum, i, k)
+                val uv = DetailBuilder.dayAt(uvMax, i, k)
+                val storm = code == 95 || code == 96 || code == 99
+                var sub: String
+                var sc = AP.T2
+                val mm = if (rn != null && rn >= 0.05) fm(rn, if (rn < 10.0) 1 else 0) + " mm" else "0 mm"
+                val mmCol = if (rn != null && rn >= 0.05) AP.BLUE else AP.T2
+                when {
+                    scn == Scn.WINTER && sn != null && sn >= 0.5 -> {
+                        sub = fm(sn, 0) + " cm"
+                        sc = AP.SNOW
+                    }
+                    scn == Scn.WINTER && loD <= -1.0 && (rn ?: 0.0) < 0.2 -> {
+                        sub = "gel"
+                        sc = AP.ICE
+                    }
+                    scn == Scn.WINTER -> sub = "0 cm"
+                    scn == Scn.HEAT && storm -> {
+                        sub = "orage"
+                        sc = AP.AMB
+                    }
+                    scn == Scn.HEAT && uv != null && uv >= 1.0 -> {
+                        sub = "UV " + fm(uv, 0)
+                        sc = if (uv >= 8) AP.RED else if (uv >= 6) AP.ORANGE else if (uv >= 4) AP.YEL else AP.GREEN
+                    }
+                    else -> {
+                        sub = mm
+                        sc = mmCol
+                    }
+                }
+                if (offline) sc = AP.GR
+                val label = if (k == 1) {
+                    "Dem."
+                } else {
+                    Instant.ofEpochSecond(t.first + 12 * H).atZone(zone).dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.FRENCH)
+                        .trimEnd('.').replaceFirstChar { it.uppercase() } + "."
+                }
+                val col = if (offline) AP.GR else wxColor(code, scn, false)
+                days.add(
+                    ADay(
+                        label, WeatherCodes.icon(code, true), col,
+                        neg(hiD.roundToInt().toString()) + "°", neg(loD.roundToInt().toString()) + "°", sub, sc,
+                    ),
+                )
             }
-            ADay(w.label, w.icon, w.iconColor, neg(w.hi.toString()) + "°", neg(w.lo.toString()) + "°", sub, w.today)
         }
 
-        // ── Qualité de l'air et pollens
+        // ── Qualité de l'air
         val a = d.f?.air
         val aqiV = a?.number(OmSection.HOURLY, "european_aqi")
         val air = aqiV?.let { v ->
-            val word = OmFormat.eaqi(v).unit.removePrefix("·").trim()
+            val idx = if (v < 100) min(5, (v / 20).toInt()) else 5
             fun pol(name: String, key: String, scale: Double): APol? = a?.number(OmSection.HOURLY, key)?.let { x ->
-                val fr = (x / scale).toFloat().coerceIn(0.04f, 1f)
-                APol(name, fm(x, 0), fr, (fr * 5.99f).toInt().coerceIn(0, 5))
+                APol(name, fm(x, 0), (x / scale).toFloat().coerceIn(0.03f, 1f))
             }
             AAir(
-                v.roundToInt(), word, eaqiBand(v),
-                listOfNotNull(pol("PM2.5", "pm2_5", 25.0), pol("PM10", "pm10", 50.0), pol("O₃", "ozone", 120.0), pol("NO₂", "nitrogen_dioxide", 40.0)),
+                v.roundToInt(), AP.EAQ_WORDS[idx], AP.EAQ[idx], min(1f, (v / 120.0).toFloat()),
+                listOfNotNull(pol("PM2.5", "pm2_5", 25.0), pol("PM10", "pm10", 50.0), pol("O₃", "ozone", 180.0), pol("NO₂", "nitrogen_dioxide", 100.0)),
             )
         }
-        val pollenNames = mapOf(
-            "alder_pollen" to "Aulne", "birch_pollen" to "Bouleau", "grass_pollen" to "Graminées",
-            "mugwort_pollen" to "Armoise", "olive_pollen" to "Olivier", "ragweed_pollen" to "Ambroisie",
-        )
-        val pRows = OmCatalog.POLLEN_VARIABLES.mapNotNull { v ->
-            a?.number(OmSection.HOURLY, v)?.let { x -> (pollenNames[v] ?: v) to min(4, d.pollenLevel(x)) }
-        }.sortedByDescending { it.second }
-        val pMax = pRows.firstOrNull()?.second ?: 0
-        val stormPollen = scn == Scn.STORM && pMax >= 2
-        val pollen = APollen(
-            rows = pRows.take(6),
-            summary = when {
-                stormPollen -> "Asthme d'orage"
-                pMax >= 4 -> "Très élevé"
-                pMax == 3 -> "Élevé"
-                pMax == 2 -> "Modéré"
-                pMax == 1 -> "Faible"
-                else -> ""
-            },
-            summaryLevel = pMax,
-            message = when {
-                pRows.isEmpty() -> "Hors saison"
-                pMax == 0 -> "Aucun pollen"
-                else -> null
-            },
-            storm = stormPollen,
-        )
 
-        // ── Module central
+        // ── Pollens : six espèces, dans l'ordre des maquettes
+        val keys = listOf(
+            "Bouleau" to "birch_pollen", "Graminées" to "grass_pollen", "Aulne" to "alder_pollen",
+            "Armoise" to "mugwort_pollen", "Olivier" to "olive_pollen", "Ambroisie" to "ragweed_pollen",
+        )
+        val rows = keys.map { (n, key) -> n to (a?.number(OmSection.HOURLY, key)?.let { x -> min(4, d.pollenLevel(x)) } ?: 0) }
+        val pMax = rows.maxOf { it.second }
+        val month = Instant.ofEpochSecond(now).atZone(zone).monthValue
+        val pollen = when {
+            pMax == 0 -> APollen(
+                rows, "Hors saison", AP.T2, true,
+                if (month == 11 || month == 12 || month == 1) "Reprise en février : aulne, noisetier, puis bouleau en mars" else "Aucun pollen mesuré en ce moment",
+            )
+            scn == Scn.STORM && pMax >= 2 -> APollen(rows, "Asthme d'orage", AP.AMB, false, "")
+            else -> APollen(
+                rows,
+                when (pMax) {
+                    1 -> "Faible"
+                    2 -> "Modéré"
+                    3 -> "Élevé"
+                    else -> "Très élevé"
+                },
+                AP.LV[pMax], false, "",
+            )
+        }
+
         val mod = module(d, i, scn, hero, offline)
-
         val place = placeName?.substringBefore(',')?.trim().orEmpty()
         val alt = i.altM?.let { Math.round(it).toString() + " m" }.orEmpty()
-        return AModel(
-            scn, place, alt, status.text, status.warn, d.pill(scn),
-            hero.value, hero.feel, lo, hi, cur, offline, chips, hours, days, air, pollen, mod,
-        )
+        return AModel(scn, place, alt, pill, hero.value, hero.feel, lo, hi, cur, offline, wind, chip2, hours, days, air, pollen, mod)
     }
 
-    private fun eaqiBand(x: Double): Int = when {
-        x <= 20 -> 0
-        x <= 40 -> 1
-        x <= 60 -> 2
-        x <= 80 -> 3
-        x <= 100 -> 4
-        else -> 5
+    /** Couleur d'icône des maquettes : soleil orangé, éclaircies turquoise (orangé en chaleur), nuage gris, pluie bleue, neige claire, orage ambre. */
+    private fun wxColor(code: Int?, scn: Scn, night: Boolean): Int = when {
+        night -> AP.T2
+        code == 0 || code == 1 -> AP.SUN
+        code == 2 -> if (scn == Scn.HEAT) AP.SUN else AP.TEAL
+        code == 95 || code == 96 || code == 99 -> AP.AMB
+        code in listOf(51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82) -> AP.BLUE
+        code in listOf(71, 73, 75, 77, 85, 86) -> AP.SNOW
+        else -> AP.T2
     }
 
     // ───────────────────────────── Module central ─────────────────────────────
@@ -257,57 +397,71 @@ internal object AtmoData {
             Scn.WINTER -> d.soon || d.mm12 >= 0.3 || d.snowCm12 >= 0.3
             else -> false
         }
-        if (precip) return rainModule(d, i, scn)
+        if (precip) return if (scn == Scn.WINTER) snowModule(d, i) else rainModule(d, i, scn)
 
         if (scn == Scn.STORM) {
             val s = d.storm()
-            val whenTxt = if (d.stormMinutes <= 0) "en cours" else OmFormat.delay(d.stormMinutes)
+            val gustTxt = s?.gust?.removePrefix("raf. ≤ ")?.takeIf { it.isNotBlank() }?.let { "≤ $it km/h" } ?: "—"
             val stats = listOf(
-                Triple("Impact", whenTxt, s?.whenTxt ?: ""),
-                Triple("Pluie", (s?.rate ?: "—") + " mm/h", s?.word ?: ""),
-                Triple("Rafales", s?.gust?.removePrefix("raf. ≤ ")?.takeIf { it.isNotBlank() }?.let { "$it km/h" } ?: "—", "prochaines 3 h"),
+                Triple("Pluie prévue", (s?.rate ?: "—") + " mm/h", AP.TX),
+                Triple("Rafales (3 h)", gustTxt, AP.TX),
+                Triple("Cumul 12 h", fm(d.mm12, 1) + " mm", AP.AMB),
             )
-            return AMod.Storm(stats, d.bins)
+            return AMod.Storm(d.stormMinutes, stats)
         }
 
-        // Courbe de température sur 24 h.
-        val n = hero.obs.size + hero.fc.size
-        val nowIdx = hero.obs.size - 1
-        val nowHour = clock(now)
-        val ticks = ArrayList<Pair<Int, String>>()
-        for (k in -2..2) {
-            val idx = nowIdx + 6 * k
-            if (nowIdx >= 0 && idx in 0 until n) ticks.add(idx to ((((nowHour + 6 * k) % 24) + 24) % 24).toString() + " h")
+        val nowH = clock(now)
+        fun h(off: Int) = ((((nowH + off) % 24) + 24) % 24).toString() + " h"
+        val axis = listOf(h(-12), h(-6), "Maint.", h(6), h(12))
+        val markIdx: Int? = if (hero.fc.isNotEmpty()) hero.obs.size + hero.fc.indices.maxByOrNull { hero.fc[it] }!! else null
+
+        if (offline) {
+            val m = d.ageMin ?: 0
+            val at = d.snap?.observedAtSec?.let { OmFormat.hhmm(it).replace(":", " h ") } ?: "—"
+            val since = if (m < 60) "$m min" else "${m / 60} h " + String.format(Locale.ROOT, "%02d", m % 60)
+            return AMod.Offline("Dernière mesure $at · il y a $since", hero.obs, hero.fc)
         }
-        val maxTxt = d.dayMax?.let { "Max " + neg(fm(it, 0)) + "°" } ?: ""
-        return when {
-            offline -> AMod.Curve("Prévisions Open-Meteo", "", hero.obs, hero.fc, ticks, null, false, null, true)
-            scn == Scn.HEAT -> {
-                val uv = d.uv()
-                val title = uv?.let { "UV " + fm(it.uv, 0) + (if (it.peak.isNotEmpty()) " · " + it.peak else "") } ?: "Forte chaleur"
-                AMod.Curve(title, maxTxt, hero.obs, hero.fc, ticks, 30.0, false, d.uvNow, false)
+        if (scn == Scn.HEAT) {
+            val uv = d.uvNow ?: 0.0
+            val word = when {
+                uv < 3 -> "UV faible"
+                uv < 6 -> "UV modéré"
+                uv < 8 -> "UV fort"
+                uv < 11 -> "UV très fort"
+                else -> "UV extrême"
             }
-            scn == Scn.WINTER -> {
-                val fr = d.frost()
-                val title = if (fr != null) fr.title + " · " + fr.value else "Températures sur 24 h"
-                AMod.Curve(title, fr?.sub ?: "", hero.obs, hero.fc, ticks, null, true, null, false)
-            }
-            else -> {
-                val next = DetailBuilder.hourly(i, "precipitation", now + 1, now + 49 * H).firstOrNull { it.second >= 0.1 }
-                val title = if (next != null) "Aucune pluie avant " + clock(next.first - H) + " h" else "Aucune pluie sur 48 h"
-                AMod.Curve(title, maxTxt, hero.obs, hero.fc, ticks, null, false, null, false)
-            }
+            val pk = d.fcTemps.take(24).maxByOrNull { it.second }
+            val peak = pk?.let { neg(fm(it.second, 0)) + "° à " + clock(it.first) + " h" } ?: (d.dayMax?.let { neg(fm(it, 0)) + "°" } ?: "—")
+            val ax = listOf(h(-12), h(-6), h(0), h(6), h(12))
+            return AMod.Heat(uv, word, peak, hero.obs, hero.fc, ax, markIdx)
         }
+        if (scn == Scn.WINTER) {
+            val fr = d.frost()
+            val title = if (fr != null) fr.title + " · " + fr.value else "Températures sur 24 h"
+            return AMod.Curve(R.drawable.ic_flake, title, "", fr?.sub ?: "", "", hero.obs, hero.fc, axis, markIdx, true)
+        }
+        // Sec
+        val next = DetailBuilder.hourly(i, "precipitation", now + 1, now + 49 * H).firstOrNull { it.second >= 0.1 }
+        val title = if (next != null) {
+            "Aucune pluie avant " + max(1, ceil((next.first - H - now) / 3600.0).toInt()) + " h"
+        } else {
+            "Aucune pluie sur 48 h"
+        }
+        val midnight = DetailBuilder.midnight(i)
+        val todayMax = DetailBuilder.hourly(i, "temperature_2m", midnight, midnight + 24 * H - 1).maxByOrNull { it.second }
+        val mx = d.dayMax ?: todayMax?.second
+        return AMod.Curve(
+            R.drawable.ic_check, title, "Max ", mx?.let { neg(fm(it, 0)) + "°" } ?: "—",
+            if (todayMax != null) " à " + clock(todayMax.first) + " h" else "", hero.obs, hero.fc, axis, markIdx, false,
+        )
     }
 
-    private fun rainModule(d: BData, i: DetailInputs, scn: Scn): AMod {
-        val now = d.now
-        val zone = d.zone
-        fun fm(v: Double, n: Int) = d.fm(v, n)
-        fun neg(s: String) = d.neg(s)
-        fun clock(sec: Long): Int = Instant.ofEpochSecond(sec).atZone(zone).hour
-        val winter = scn == Scn.WINTER
+    // ───────────────────────────── Pluie ─────────────────────────────
 
+    private class Series(val phaseM: List<Int>, val phaseH: List<Int>, val limM: List<Double>?, val limH: List<Double>?)
+
+    private fun series(d: BData, i: DetailInputs): Series {
+        val now = d.now
         val temps = DetailBuilder.hourlyMap(i, "temperature_2m")
         val sh = DetailBuilder.hourlyMap(i, "snowfall_height")
         val fz = DetailBuilder.hourlyMap(i, "freezing_level_height")
@@ -316,10 +470,7 @@ internal object AtmoData {
             Tone.ICE -> 1
             else -> 0
         }
-
-        // Limite pluie / neige, interpolée dans le temps.
         val limS = DetailBuilder.limitSeries(i, 14)
-        val showLimit = limS.size >= 2 && limS.minOf { it.second } <= (i.altM ?: 800.0) + 1200.0
         fun limAt(t: Long): Double {
             if (t <= limS.first().first) return limS.first().second
             for (k in 1 until limS.size) {
@@ -332,86 +483,139 @@ internal object AtmoData {
             }
             return limS.last().second
         }
-
-        // Dans l'heure : 12 pas de 5 minutes (mm/h). En hiver, converti en cm de neige d'après le rapport de la première heure.
-        val firstPrec = d.prec12.firstOrNull()?.second ?: 0.0
-        val firstSnow = d.snowH.firstOrNull()?.second ?: 0.0
-        val ratio = if (firstPrec >= 0.1) (firstSnow / firstPrec).coerceIn(0.7, 1.6) else 1.0
-        val mPhases = List(12) { phaseAt(((now + it * 300L) / H) * H) }
-        val mVals = d.bins.take(12).let { b -> if (winter) b.mapIndexed { k, v -> if (mPhases[k] == 2) v * ratio else v } else b }
-        val mCum = d.bins.take(12).sum() / 12.0
-        val mCumTxt = if (winter && mPhases.any { it == 2 }) fm(mCum * ratio, 1) + " cm" else fm(mCum, 1) + " mm"
-        val minutes = APanel(
-            "Dans l'heure", mCumTxt, mVals, mPhases,
-            listOf(0.25f to "+15", 0.5f to "+30", 0.75f to "+45", 1f to "+60"),
-            if (showLimit) List(12) { limAt(now + it * 300L + 150L) } else null,
-            flakeOf(mPhases), max(if (winter) 1.0 else 3.0, mVals.maxOrNull() ?: 0.0),
+        val has = limS.size >= 2
+        return Series(
+            List(12) { phaseAt(((now + it * 300L) / H) * H) },
+            d.prec12.map { phaseAt(it.first - H) },
+            if (has) List(12) { limAt(now + it * 300L + 150L) } else null,
+            if (has) d.prec12.map { limAt(it.first - H / 2) } else null,
         )
-
-        // D'ici 12 h : 12 cumuls horaires.
-        val snowByEnd = d.snowH.toMap()
-        val hPhases = d.prec12.map { phaseAt(it.first - H) }
-        val hVals = d.prec12.mapIndexed { k, p -> if (winter && hPhases[k] == 2) (snowByEnd[p.first] ?: p.second) else p.second }
-        val hSnowTotal = d.prec12.indices.sumOf { k -> if (hPhases[k] == 2) (snowByEnd[d.prec12[k].first] ?: 0.0) else 0.0 }
-        val hCumTxt = if (winter && hSnowTotal >= 0.1) fm(hSnowTotal, 1) + " cm" else fm(d.mm12, 1) + " mm"
-        val hTicks = ArrayList<Pair<Float, String>>()
-        d.prec12.forEachIndexed { k, p ->
-            val h = clock(p.first - H)
-            if (h % 3 == 0) hTicks.add(((k + 0.5f) / d.prec12.size) to "$h h")
-        }
-        val hours = APanel(
-            "D'ici 12 h", hCumTxt, hVals, hPhases, hTicks,
-            if (showLimit) d.prec12.map { limAt(it.first - H / 2) } else null,
-            flakeOf(hPhases), max(if (winter) 1.0 else 3.0, hVals.maxOrNull() ?: 0.0),
-        )
-
-        // Titre et information de droite.
-        val pop = if (d.probMap.isEmpty() || d.prec12.isEmpty()) null else d.prec12.maxOf { d.probMap[it.first] ?: 0.0 }
-        val popTxt = pop?.let { fm(it, 0) + " %" } ?: ""
-        val firstWet = d.prec12.firstOrNull { it.second >= 0.1 }
-        val title: String
-        var right: String
-        if (winter) {
-            val sn = d.snowH.firstOrNull { it.second >= 0.1 }
-            title = when {
-                sn != null && (d.rainNow && mPhases[0] == 2 || sn.first - H <= now + 600) -> "Neige en cours"
-                sn != null -> "Neige dès " + clock(sn.first - H) + " h"
-                firstWet != null -> "Pluie · limite " + (if (showLimit) Math.round(limAt(now) / 50.0) * 50 else 0) + " m"
-                else -> "Précipitations"
-            }
-            right = ""
-        } else if (d.rainNow) {
-            val word = RainColors.word(RainColors.RATE, max(d.rate, 0.1)).replaceFirstChar { it.uppercase() }
-            title = word + " · " + fm(d.rate, 1) + " mm/h"
-            right = d.f?.rainEndMin?.takeIf { it in 1..180 }?.let { "fin dans " + OmFormat.delay(it) } ?: popTxt
-        } else {
-            val nm = d.f?.nextRainMin
-            title = when {
-                nm != null && nm in 1..90 -> "Pluie dans " + OmFormat.delay(nm)
-                firstWet != null -> "Pluie vers " + clock(firstWet.first - H) + " h"
-                else -> "Pluie annoncée"
-            }
-            right = popTxt
-        }
-
-        // Pastilles d'hiver et jauge d'altitude.
-        var gauge: AGauge? = null
-        val chips = ArrayList<String>()
-        if (winter) {
-            d.snow24()?.let { chips.add(fm(it.total, 0) + " cm / 24 h") }
-            d.frost()?.takeIf { it.value.startsWith("−") || it.value.startsWith("-") || it.value.startsWith("0") }
-                ?.let { chips.add("Gel " + it.value + " " + it.sub.substringBefore(" ·")) }
-            d.snowAlt()?.let {
-                gauge = AGauge(it.limit, it.station, max(1200.0, ceil((max(it.limit, it.station) + 300.0) / 300.0) * 300.0))
-            }
-        }
-        return AMod.Rain(title, if (winter) "" else right, minutes, hours, gauge, chips)
     }
 
-    /** Première barre où la phase passe de la pluie à la mêlée ou à la neige ; null s'il pleut déjà en mêlée / neige, ou si rien ne change. */
     private fun flakeOf(ph: List<Int>): Int? {
         if (ph.isEmpty() || ph[0] != 0) return null
         val k = ph.indexOfFirst { it > 0 }
         return if (k > 0) k else null
+    }
+
+    private fun hms(d: BData, sec: Long): String {
+        val z = Instant.ofEpochSecond(sec).atZone(d.zone)
+        return if (z.minute == 0) "${z.hour} h" else "${z.hour} h " + String.format(Locale.ROOT, "%02d", z.minute)
+    }
+
+    private fun rainModule(d: BData, i: DetailInputs, scn: Scn): AMod {
+        val now = d.now
+        fun fm(v: Double, n: Int) = d.fm(v, n)
+        val s = series(d, i)
+        val acc = if (scn == Scn.ANNOUNCED) AP.BLUE else 0xFF7DBBFF.toInt()
+        val bins = d.bins.take(12)
+        val mCum = bins.sum() / 12.0
+
+        val minutes = APanel(
+            "Dans l'heure", fm(mCum, 1) + " mm", acc, bins, s.phaseM, max(3.2, bins.maxOrNull() ?: 0.0), null, s.limM,
+            listOf(0.25f to "+15", 0.5f to "+30", 0.75f to "+45", 1f to "+60"), true,
+        )
+        val hVals = d.prec12.map { it.second }
+        val hTicks = ArrayList<Pair<Float, String>>()
+        d.prec12.forEachIndexed { k, p ->
+            val h = Instant.ofEpochSecond(p.first - H).atZone(d.zone).hour
+            if (h % 3 == 0) hTicks.add((k / 12f) to "$h h")
+        }
+        val hours = APanel(
+            "D'ici 12 h", fm(d.mm12, 1) + " mm", acc, hVals, s.phaseH, max(2.5, hVals.maxOrNull() ?: 0.0), flakeOf(s.phaseH), s.limH, hTicks, false,
+        )
+
+        val firstWet = d.prec12.firstOrNull { it.second >= 0.1 }
+        val lastWet = d.prec12.lastOrNull { it.second >= 0.1 }
+        val pop = if (d.probMap.isEmpty() || d.prec12.isEmpty()) null else d.prec12.maxOf { d.probMap[it.first] ?: 0.0 }
+        fun word(v: Double) = RainColors.word(RainColors.RATE, max(v, 0.1))
+        val rates = (bins + d.prec12.map { it.second }).filter { it >= 0.1 }
+        val w1 = rates.firstOrNull()?.let { word(it) }
+        val w2 = rates.maxOrNull()?.let { word(it) }
+
+        if (d.rainNow) {
+            val title = word(d.rate).replaceFirstChar { it.uppercase() } + " · " + fm(d.rate, 1) + " mm/h"
+            val end = d.f?.rainEndMin?.takeIf { it in 1..240 }
+            // Reprise : une heure humide après une heure sèche, dans les 12 h.
+            var resume: String? = null
+            var dry = false
+            for (p in d.prec12) {
+                if (p.second < 0.1) {
+                    dry = true
+                } else if (dry) {
+                    resume = hms(d, p.first - H)
+                    break
+                }
+            }
+            val sub = (if (end != null) "Fin dans ~" + OmFormat.delay(end) else "Pluie en cours") + (if (resume != null) " · reprise vers $resume" else "")
+            val day = d.snap?.rainDaily
+            return AMod.Rain(title, sub, "", "", day?.let { fm(it, 1) + " mm" } ?: "", minutes, hours)
+        }
+        val nm = d.f?.nextRainMin
+        val title = when {
+            nm != null && nm in 1..90 -> "Pluie dans " + OmFormat.delay(nm)
+            firstWet != null -> "Pluie vers " + hms(d, max(firstWet.first - H, now))
+            else -> "Pluie annoncée"
+        }
+        val seq = if (w1 != null && w2 != null && w1 != w2) {
+            w1.replaceFirstChar { it.uppercase() } + " puis " + w2
+        } else {
+            (w1 ?: "Pluie").replaceFirstChar { it.uppercase() }
+        }
+        val sub = seq + (if (lastWet != null) " · fin vers " + hms(d, lastWet.first) else "")
+        return AMod.Rain(title, sub, pop?.let { fm(it, 0) } ?: "", " %", "", minutes, hours)
+    }
+
+    // ───────────────────────────── Neige ─────────────────────────────
+
+    private fun snowModule(d: BData, i: DetailInputs): AMod {
+        val now = d.now
+        fun fm(v: Double, n: Int) = d.fm(v, n)
+        val s = series(d, i)
+        val snowByEnd = d.snowH.toMap()
+        val firstPrec = d.prec12.firstOrNull()?.second ?: 0.0
+        val firstSnow = d.snowH.firstOrNull()?.second ?: 0.0
+        val ratio = if (firstPrec >= 0.1) (firstSnow / firstPrec).coerceIn(0.7, 1.6) else 1.0
+        val bins = d.bins.take(12)
+        // 5 minutes à x mm/h : x / 12 mm ; en cm de neige : × rapport neige / eau.
+        val mVals = bins.mapIndexed { k, v -> if (s.phaseM[k] == 2) v / 12.0 * ratio else v / 12.0 }
+        val mSnow = mVals.indices.sumOf { k -> if (s.phaseM[k] == 2) mVals[k] else 0.0 }
+        val mTotal = if (mSnow >= 0.05) fm(mSnow, 1) + " cm" else fm(mVals.sum(), 1) + " mm"
+        val hVals = d.prec12.mapIndexed { k, p -> if (s.phaseH[k] == 2) (snowByEnd[p.first] ?: p.second) else p.second }
+        val hSnow = d.prec12.indices.sumOf { k -> if (s.phaseH[k] == 2) (snowByEnd[d.prec12[k].first] ?: 0.0) else 0.0 }
+        val hTotal = if (hSnow >= 0.1) fm(hSnow, 0) + " cm" else fm(d.mm12, 1) + " mm"
+        val hTicks = ArrayList<Pair<Float, String>>()
+        d.prec12.forEachIndexed { k, p ->
+            val h = Instant.ofEpochSecond(p.first - H).atZone(d.zone).hour
+            if (h % 3 == 0) hTicks.add((k / 12f) to "$h h")
+        }
+        val minutes = APanel(
+            "Dans l'heure", mTotal, AP.SNOW, mVals, s.phaseM, max(1.6, mVals.maxOrNull() ?: 0.0), null, s.limM,
+            listOf(0.25f to "15", 0.5f to "30", 0.75f to "45", 1f to "60"), true,
+        )
+        val hours = APanel("D'ici 12 h", hTotal, AP.SNOW, hVals, s.phaseH, max(2.4, hVals.maxOrNull() ?: 0.0), flakeOf(s.phaseH), s.limH, hTicks, false)
+
+        val sn = d.snowH.firstOrNull { it.second >= 0.1 }
+        val snowNow = sn != null && (sn.first - H) <= now + 600
+        val title = when {
+            sn == null -> "Précipitations"
+            snowNow -> "Neige en cours"
+            else -> "Neige dès " + hms(d, sn.first - H)
+        }
+        val alt = d.snowAlt()
+        val lastSnow = d.snowH.lastOrNull { it.second >= 0.1 }
+        val subA = when {
+            alt == null -> ""
+            alt.limit <= alt.station -> "Limite sous la station"
+            else -> "Limite au-dessus de la station"
+        }
+        val sub = subA + (if (lastSnow != null) (if (subA.isNotEmpty()) " · " else "") + "fin vers " + hms(d, lastSnow.first) else "")
+        val chips = ArrayList<String>()
+        d.snow24()?.let { chips.add(fm(it.total, 0) + " cm / 24 h") }
+        d.frost()?.takeIf { it.value.startsWith("−") || it.value.startsWith("-") }?.let {
+            chips.add("Gel " + it.value + " à " + it.sub.substringAfter("à ").substringBefore(" ·"))
+        }
+        val gauge = alt?.let { AGauge(it.limit, it.station) }
+        return AMod.Snow(title, sub, chips, gauge, minutes, hours)
     }
 }

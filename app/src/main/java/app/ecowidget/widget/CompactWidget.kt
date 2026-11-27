@@ -138,10 +138,7 @@ internal fun CompactBody(
     }
     // Style « Atmosphère » (par défaut) : une seule colonne ; si le widget est trop petit, le Bento prend le relais.
     val atmo = if (snap != null && openTile == null && Storage.widgetStyle(ctx) == Storage.STYLE_ATMO) {
-        Atmo.plan(
-            ctx, inputs, statusOf(state, config.showTime), place,
-            size.width.value - 2f * Atmo.PAD, size.height.value - 2f * Atmo.PAD, ageMin,
-        )
+        Atmo.plan(ctx, inputs, place, size.width.value, size.height.value, ageMin)
     } else {
         null
     }
