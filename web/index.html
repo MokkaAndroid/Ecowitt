@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#191919">
+<title>Ecowidget · Station et modèles</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>Ma station</h1>
+    <span class="sub" id="sub">chargement…</span>
+  </div>
+  <div class="tools">
+    <span class="chip" id="age" title="Âge de la dernière mesure"><i class="dot"></i><span>—</span></span>
+    <button class="icon-btn" id="theme" aria-label="Changer de thème" title="Clair / sombre / auto">◐</button>
+    <button class="icon-btn" id="reload" aria-label="Actualiser" title="Actualiser">↻</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" id="tab-wx" aria-selected="true" aria-controls="view-wx">Météo</button>
+  <button role="tab" id="tab-perf" aria-selected="false" aria-controls="view-perf">Performance des modèles</button>
+</nav>
+
+<main>
+<!-- ───────────── Onglet Météo ───────────── -->
+<section id="view-wx" role="tabpanel" aria-labelledby="tab-wx">
+  <div id="notice" class="notice" hidden></div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Mesures et prévisions par modèle</h2>
+      <div class="seg" id="var-seg" role="group" aria-label="Grandeur"></div>
+    </div>
+    <div class="controls">
+      <div class="seg" id="hz-seg" role="group" aria-label="Horizon">
+        <button data-h="24">+24 h</button><button data-h="48" class="on">+48 h</button><button data-h="72">+3 j</button><button data-h="144">+6 j</button>
+      </div>
+      <div class="seg" id="mode-seg" role="group" aria-label="Affichage" hidden>
+        <button data-m="hour" class="on">Par heure</button><button data-m="cum">Cumul</button>
+      </div>
+    </div>
+    <div class="legend" id="legend" aria-label="Légende"></div>
+    <div class="chart tall"><canvas id="c-main" role="img" aria-label="Graphique des mesures et des prévisions"></canvas></div>
+    <p class="foot" id="main-foot"></p>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Comparaison par échéance</h2><span class="sub" id="tbl-sub"></span></div>
+    <div class="scroll"><table class="tbl" id="t-lead"></table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Jour par jour</h2><span class="sub">min / max · pluie</span></div>
+    <div class="scroll"><table class="tbl" id="t-day"></table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Station : 7 derniers jours</h2><div class="seg" id="hist-seg" role="group"></div></div>
+    <div class="chart"><canvas id="c-hist" role="img" aria-label="Historique de la station"></canvas></div>
+  </div>
+
+  <details class="card raw">
+    <summary>Toutes les mesures en direct</summary>
+    <div class="scroll"><table class="tbl" id="t-raw"></table></div>
+  </details>
+</section>
+
+<!-- ───────────── Onglet Performance ───────────── -->
+<section id="view-perf" role="tabpanel" aria-labelledby="tab-perf" hidden>
+  <div class="card">
+    <div class="card-head">
+      <h2>Qui prévoit le mieux ?</h2>
+      <span class="sub" id="perf-span"></span>
+    </div>
+    <div class="controls wrap">
+      <div class="seg" id="p-var" role="group" aria-label="Grandeur"><button data-v="temp" class="on">Température</button><button data-v="rain">Pluie</button></div>
+      <div class="seg" id="p-ech" role="group" aria-label="Échéance"></div>
+      <div class="seg" id="p-per" role="group" aria-label="Période">
+        <button data-d="7">7 j</button><button data-d="30">30 j</button><button data-d="60" class="on">60 j</button><button data-d="9999">Tout</button>
+      </div>
+      <label class="check" id="tol-wrap" hidden><input type="checkbox" id="tol"> tolérance ±1 h</label>
+    </div>
+    <p class="verdict" id="verdict"></p>
+    <div class="scroll"><table class="tbl rank" id="t-rank"></table></div>
+    <p class="foot" id="rank-foot"></p>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2 id="pa-title">Au fil du temps</h2><div class="seg" id="p-met" role="group" aria-label="Indicateur"></div></div>
+    <div class="legend" id="p-legend" aria-label="Légende"></div>
+    <div class="chart"><canvas id="c-pa" role="img" aria-label="Évolution des performances"></canvas></div>
+    <p class="foot" id="pa-foot"></p>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2 id="pb-title">—</h2></div>
+    <div class="chart"><canvas id="c-pb" role="img" aria-label="Second graphique de performance"></canvas></div>
+    <p class="foot" id="pb-foot"></p>
+  </div>
+</section>
+</main>
+
+<footer class="bottom">
+  <span id="gen">—</span>
+  <span class="links"><a href="data/station.csv" download>station.csv</a><a href="data/forecasts.csv" download>forecasts.csv</a><a href="data/latest.json" download>latest.json</a></span>
+</footer>
+
+<script src="vendor/chart.umd.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

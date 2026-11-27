@@ -1,0 +1,79 @@
+name: Page web
+
+# Collecte toutes les 30 min (station Ecowitt + prévisions des modèles), archive les CSV
+# sur la branche « data » et publie la page sur GitHub Pages.
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['web/**', '.github/workflows/web.yml']
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: web-collect
+  cancel-in-progress: false
+
+jobs:
+  collect-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Branche « data » : historique CSV (hors de main pour ne pas toucher à l'APK)
+      - name: Récupérer la branche data
+        run: |
+          mkdir -p "$RUNNER_TEMP/data"
+          if git ls-remote --exit-code --heads origin data >/dev/null 2>&1; then
+            git fetch --depth=1 origin data
+            git worktree add "$RUNNER_TEMP/datawt" FETCH_HEAD
+            cp -r "$RUNNER_TEMP/datawt/." "$RUNNER_TEMP/data/" && rm -rf "$RUNNER_TEMP/data/.git"
+          fi
+
+      - name: Collecter
+        env:
+          ECOWITT_APP_KEY: ${{ secrets.ECOWITT_APP_KEY }}
+          ECOWITT_API_KEY: ${{ secrets.ECOWITT_API_KEY }}
+          ECOWITT_MAC: ${{ secrets.ECOWITT_MAC }}
+          LAT: ${{ secrets.LAT }}
+          LON: ${{ secrets.LON }}
+          ELEVATION: ${{ secrets.ELEVATION }}
+        run: python3 web/collect.py --data "$RUNNER_TEMP/data" --seed web/seed
+
+      - name: Enregistrer l'historique (branche data)
+        run: |
+          cd "$RUNNER_TEMP"
+          rm -rf pub && mkdir pub && cd pub
+          git init -q -b data
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          if git ls-remote --exit-code --heads origin data >/dev/null 2>&1; then git fetch -q --depth=1 origin data && git reset -q --soft FETCH_HEAD; fi
+          cp "$RUNNER_TEMP"/data/*.csv "$RUNNER_TEMP"/data/*.json . 2>/dev/null || true
+          git add -A
+          if git diff --cached --quiet; then echo "Rien de nouveau"; else
+            git -c user.name="ecowidget-bot" -c user.email="bot@users.noreply.github.com" commit -q -m "data $(date -u +%FT%TZ)"
+            git push -q origin data
+          fi
+
+      - name: Assembler le site
+        run: |
+          mkdir -p _site/data
+          cp web/index.html web/app.js web/style.css _site/
+          cp -r web/vendor _site/vendor
+          cp "$RUNNER_TEMP"/data/*.csv "$RUNNER_TEMP"/data/latest.json _site/data/ 2>/dev/null || true
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
