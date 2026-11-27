@@ -8,7 +8,7 @@ Chaque exécution (toutes les 30 min, voir .github/workflows/web.yml) :
        - échéances courtes (+1 à +12 h) des runs de 0, 6, 12 et 18 h UTC (API Single Runs) ;
        - échéances J+1 à J+5 (API Previous Runs).
 Les fichiers de données s'incrémentent : rien n'est jamais supprimé. Variables d'environnement :
-ECOWITT_APP_KEY, ECOWITT_API_KEY, ECOWITT_MAC (obligatoires pour les mesures) ; LAT, LON, ELEVATION (facultatifs :
+ECOWITT_APP_KEY, ECOWITT_API_KEY, ECOWITT_MAC (obligatoires pour les mesures) ; BACKFILL_DAYS (rattrapage de l'historique, 400 par défaut) ; LAT, LON, ELEVATION (facultatifs :
 position et altitude lues dans le compte Ecowitt / 685 m par défaut) ; TZ_NAME (Europe/Paris par défaut).
 """
 import argparse
@@ -127,11 +127,16 @@ def window_mean(s, t0, t1):
 
 def station_history(now, tzname):
     """Mesures horaires des ~3 derniers jours, dérivées de l'historique 30 min du cloud Ecowitt."""
+    return station_window(now - 72 * HOUR, now, tzname)
+
+
+def station_window(t0, t1, tzname):
+    """Lignes horaires pour les heures de ]t0, t1], dérivées de l'historique 30 min du cloud Ecowitt."""
     from zoneinfo import ZoneInfo
     z = ZoneInfo(tzname)
     fmt = "%Y-%m-%d %H:%M:%S"
-    start = datetime.fromtimestamp(now - 74 * HOUR, z).strftime(fmt)
-    end = datetime.fromtimestamp(now + 2 * HOUR, z).strftime(fmt)
+    start = datetime.fromtimestamp(t0 - 2 * HOUR, z).strftime(fmt)
+    end = datetime.fromtimestamp(t1 + 2 * HOUR, z).strftime(fmt)
     groups_try = [
         "outdoor,pressure,wind,rainfall,rainfall_piezo,indoor,solar_and_uvi",
         "outdoor,pressure,wind,rainfall,indoor",
@@ -166,8 +171,8 @@ def station_history(now, tzname):
     rain_series = [s for s in rain_series if len(s) >= 4]
     rain = max(rain_series, key=lambda s: max(v for _, v in s)) if rain_series else None
     rows = []
-    first = (now - 72 * HOUR) // HOUR + 1
-    last_h = now // HOUR
+    first = t0 // HOUR + 1
+    last_h = t1 // HOUR
     for hr in range(first, last_h + 1):
         t = hr * HOUR
         r = {"epoch": t}
@@ -538,6 +543,51 @@ def collect_day_leads(loc, now, past_days=3):
     return new
 
 
+BACKFILL_CHUNK_DAYS = 6
+BACKFILL_MAX_CHUNKS = 30
+
+
+def backfill_station(path, now, tzname, state):
+    """Rattrape l'historique de la station par tranches de 6 jours, de la plus récente à la plus ancienne.
+
+    Le cloud Ecowitt garde le pas de 30 min environ 1 an. On s'arrête après 3 tranches vides d'affilée (avant l'installation
+    de la station) ou à BACKFILL_DAYS jours (400 par défaut). Le curseur est conservé dans state.json : la collecte reprend où
+    elle s'était arrêtée, sans refaire les tranches déjà lues.
+    """
+    bf = state.setdefault("backfill", {})
+    if bf.get("done"):
+        return 0
+    days = int(os.environ.get("BACKFILL_DAYS") or 400)
+    floor = now - days * 86400
+    cursor = int(bf.get("cursor") or (now - 72 * HOUR))
+    empty, chunks, total = int(bf.get("empty", 0)), 0, 0
+    while cursor > floor and chunks < BACKFILL_MAX_CHUNKS:
+        t0 = max(floor, cursor - BACKFILL_CHUNK_DAYS * 86400)
+        rows = []
+        try:
+            rows = station_window(t0, cursor, tzname)
+        except Exception as e:
+            if "aucune" not in str(e).lower():
+                errors.append("rattrapage station : %s" % e)
+                break
+        if rows:
+            total += upsert_station(path, rows)
+            empty = 0
+        else:
+            empty += 1
+        cursor, chunks = t0, chunks + 1
+        bf["cursor"], bf["empty"] = cursor, empty
+        if empty >= 3:
+            bf["done"] = True
+            break
+        time.sleep(1.5)
+    if cursor <= floor:
+        bf["done"] = True
+    bf["updated"] = now
+    log("rattrapage : %d tranches, %d lignes, curseur %s%s" % (chunks, total, datetime.fromtimestamp(cursor, timezone.utc).strftime("%Y-%m-%d"), " (terminé)" if bf.get("done") else ""))
+    return total
+
+
 # ───────────────────────────── Programme ─────────────────────────────
 
 def main():
@@ -582,6 +632,10 @@ def main():
             log("station.csv : %d lignes ajoutées ou mises à jour" % ch)
         except Exception as e:
             errors.append("historique station : %s" % e)
+        try:
+            backfill_station(stp, now, tzname, state)
+        except Exception as e:
+            errors.append("rattrapage station : %s" % e)
         try:
             latest["today"] = station_today(now, tzname)
         except Exception as e:
