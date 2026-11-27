@@ -3,7 +3,7 @@
 Tableau de bord de la station et des modèles météo (onglets « Météo » et « Performance des modèles »).
 
 - `collect.py` : collecte (Python standard, sans dépendance) → `station.csv`, `forecasts.csv`, `latest.json`.
-- `index.html`, `app.js`, `style.css`, `vendor/` : la page (Chart.js et la police sont embarqués, aucun CDN).
+- `index.html`, `style.css`, `core.js` (données, graphiques), `today.js`, `perf.js`, `history.js`, `boot.js`, `vendor/` : la page (Chart.js et la police sont embarqués, aucun CDN).
 - `seed/` : historique de départ (étude du 27 sept. au 26 nov. 2026), recopié si la branche `data` est vide.
 - Workflow : `.github/workflows/web.yml` (toutes les 30 min). Les CSV grandissent sur la branche `data`.
 

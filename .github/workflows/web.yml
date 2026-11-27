@@ -66,7 +66,8 @@ jobs:
       - name: Assembler le site
         run: |
           mkdir -p _site/data
-          cp web/index.html web/app.js web/style.css _site/
+          cp web/*.html web/*.js web/*.css _site/
+          rm -f _site/collect.py
           cp -r web/vendor _site/vendor
           cp "$RUNNER_TEMP"/data/*.csv "$RUNNER_TEMP"/data/latest.json _site/data/ 2>/dev/null || true
           touch _site/.nojekyll

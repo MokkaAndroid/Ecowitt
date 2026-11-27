@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 HOUR = 3600
 STATION_COLS = ["epoch", "ts_utc", "temp", "feels", "hum", "dew", "press", "wind", "gust", "wind_dir",
-                "rain_h", "rain_day", "uv", "solar", "temp_in", "hum_in"]
+                "rain_h", "rain_day", "uv", "solar", "temp_in", "hum_in", "temp_min", "temp_max"]
 FC_COLS = ["epoch", "run", "lead_h", "ech", "model", "temp", "rain"]
 
 # id Open-Meteo, nom court, libellé, jusqu'à quel jour on archive (J+1…), échéances courtes archivées
@@ -179,6 +179,9 @@ def station_history(now, tzname):
         r["wind"] = window_mean(S["wind"], t - HOUR, t) if S["wind"] else None
         r["gust"] = window_max(S["gust"], t - HOUR, t) if S["gust"] else None
         r["wind_dir"] = nearest(S["dir"], t, 900)
+        tw = [v for ts, v in temp if t - HOUR < ts <= t]
+        if tw:
+            r["temp_min"], r["temp_max"] = min(tw), max(tw)
         if rain:
             a, b = nearest(rain, t, 600), nearest(rain, t - HOUR, 600)
             if a is not None:
@@ -244,6 +247,106 @@ def station_location():
             if lat is not None and lon is not None and not (lat == 0 and lon == 0):
                 return lat, lon
     return None
+
+
+def station_today(now, tzname):
+    """Mesures de la journée en cours, pas de 5 min (historique Ecowitt), pour les courbes de la page."""
+    from zoneinfo import ZoneInfo
+    z = ZoneInfo(tzname)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    mid = datetime.fromtimestamp(now, z).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = mid.strftime(fmt)
+    end = datetime.fromtimestamp(now + 600, z).strftime(fmt)
+    data, last = None, None
+    for g in ("outdoor,pressure,wind,rainfall,rainfall_piezo,solar_and_uvi", "outdoor,pressure,wind,rainfall_piezo,solar_and_uvi", "outdoor,pressure,wind", "outdoor"):
+        try:
+            data = ecowitt("api/v3/device/history", {
+                "start_date": start, "end_date": end, "cycle_type": "5min", "call_back": g,
+                "temp_unitid": "1", "pressure_unitid": "3", "wind_speed_unitid": "7", "rainfall_unitid": "12",
+                "solar_irradiance_unitid": "16"})
+            break
+        except Exception as e:
+            last = e
+    if data is None:
+        raise last or RuntimeError("historique 5 min indisponible")
+    temp = series(data, "outdoor", "temperature")
+    if not temp:
+        raise RuntimeError("aucune température sur la journée")
+    rain = None
+    for g in ("rainfall_piezo", "rainfall"):
+        s = series(data, g, "daily")
+        if s and (rain is None or max(v for _, v in s) > max(v for _, v in rain)):
+            rain = s
+    cols = {
+        "temp": temp, "feels": series(data, "outdoor", "feels_like"), "hum": series(data, "outdoor", "humidity"),
+        "dew": series(data, "outdoor", "dew_point"), "press": series(data, "pressure", "relative"),
+        "wind": series(data, "wind", "wind_speed"), "gust": series(data, "wind", "wind_gust"),
+        "dir": series(data, "wind", "wind_direction"), "uv": series(data, "solar_and_uvi", "uvi"),
+        "solar": series(data, "solar_and_uvi", "solar"), "rain_day": rain or [],
+    }
+    ts = [t for t, _ in temp]
+    out = {"midnight": int(mid.timestamp()), "t": ts}
+    for k, sr in cols.items():
+        d = dict(sr)
+        out[k] = [None if d.get(t) is None else round(d[t], 2) for t in ts]
+    return out
+
+
+OM_CURRENT = ["temperature_2m", "apparent_temperature", "relative_humidity_2m", "precipitation", "weather_code", "cloud_cover",
+              "pressure_msl", "surface_pressure", "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m", "is_day"]
+OM_HOURLY = ["temperature_2m", "apparent_temperature", "dew_point_2m", "relative_humidity_2m", "precipitation", "precipitation_probability",
+             "weather_code", "pressure_msl", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m", "cloud_cover", "cloud_cover_low",
+             "cloud_cover_mid", "cloud_cover_high", "visibility", "uv_index", "shortwave_radiation", "freezing_level_height", "snowfall",
+             "cape", "is_day", "sunshine_duration"]
+OM_DAILY = ["weather_code", "temperature_2m_max", "temperature_2m_min", "apparent_temperature_max", "apparent_temperature_min",
+            "sunrise", "sunset", "daylight_duration", "sunshine_duration", "uv_index_max", "precipitation_sum", "rain_sum", "snowfall_sum",
+            "precipitation_hours", "precipitation_probability_max", "wind_speed_10m_max", "wind_gusts_10m_max", "wind_direction_10m_dominant",
+            "shortwave_radiation_sum"]
+
+
+def rnd(a, n=2):
+    return [None if x is None else round(x, n) for x in a]
+
+
+def open_meteo_full(loc):
+    """Prévision détaillée « Auto » (conditions actuelles, horaire sur 7 jours, quotidien) : tout ce que l'API sait donner."""
+    p = loc.params(True)
+    p.update({"current": ",".join(OM_CURRENT), "hourly": ",".join(OM_HOURLY), "daily": ",".join(OM_DAILY),
+              "forecast_days": "7", "past_days": "1", "models": "best_match"})
+    d = om("api.open-meteo.com", "v1/forecast", p)
+    out = {"elevation": d.get("elevation"), "utc_offset": d.get("utc_offset_seconds"), "current": d.get("current") or {},
+           "hourly": {}, "daily": {}}
+    h = d.get("hourly") or {}
+    out["hourly"]["time"] = h.get("time") or []
+    for k in OM_HOURLY:
+        a = h.get(k)
+        if isinstance(a, list):
+            out["hourly"][k] = rnd(a)
+    dl = d.get("daily") or {}
+    out["daily"]["time"] = dl.get("time") or []
+    for k in OM_DAILY:
+        a = dl.get(k)
+        if isinstance(a, list):
+            out["daily"][k] = a if k in ("sunrise", "sunset") else rnd(a)
+    return out
+
+
+AIR_CURRENT = ["european_aqi", "pm10", "pm2_5", "ozone", "nitrogen_dioxide", "sulphur_dioxide", "carbon_monoxide", "dust", "uv_index",
+               "alder_pollen", "birch_pollen", "grass_pollen", "mugwort_pollen", "olive_pollen", "ragweed_pollen"]
+AIR_HOURLY = ["european_aqi", "pm10", "pm2_5", "ozone", "alder_pollen", "birch_pollen", "grass_pollen", "mugwort_pollen", "ragweed_pollen"]
+
+
+def air_quality(loc):
+    p = loc.params(False)
+    p.update({"current": ",".join(AIR_CURRENT), "hourly": ",".join(AIR_HOURLY), "forecast_days": "3", "past_days": "1"})
+    d = om("air-quality-api.open-meteo.com", "v1/air-quality", p)
+    h = d.get("hourly") or {}
+    out = {"current": d.get("current") or {}, "hourly": {"time": h.get("time") or []}}
+    for k in AIR_HOURLY:
+        a = h.get(k)
+        if isinstance(a, list) and any(x is not None for x in a):
+            out["hourly"][k] = rnd(a, 1)
+    return out
 
 
 # ───────────────────────────── CSV ─────────────────────────────
@@ -460,13 +563,13 @@ def main():
         except Exception:
             state = {}
     has_eco = all(os.environ.get(k) for k in ("ECOWITT_APP_KEY", "ECOWITT_API_KEY", "ECOWITT_MAC"))
-    latest = {"generated": now, "errors": [], "station": None, "raw": {}, "forecast": None,
+    latest = {"generated": now, "errors": [], "station": None, "raw": {}, "forecast": None, "today": None, "om": None, "air": None, "tz": tzname,
               "models": [{"short": m[1], "label": m[2]} for m in MODELS]}
     # Si la collecte échoue, on garde les données précédentes pour ce bloc.
     if os.path.exists(jsp):
         try:
             prev = json.load(open(jsp, encoding="utf-8"))
-            for k in ("station", "raw", "forecast"):
+            for k in ("station", "raw", "forecast", "today", "om", "air"):
                 latest[k] = prev.get(k)
         except Exception:
             pass
@@ -479,6 +582,10 @@ def main():
             log("station.csv : %d lignes ajoutées ou mises à jour" % ch)
         except Exception as e:
             errors.append("historique station : %s" % e)
+        try:
+            latest["today"] = station_today(now, tzname)
+        except Exception as e:
+            errors.append("journée 5 min : %s" % e)
         try:
             snap, raw = station_now()
             latest["station"], latest["raw"] = snap, raw
@@ -511,6 +618,14 @@ def main():
             latest["forecast"] = latest_forecast(L, now)
         except Exception as e:
             errors.append("prévisions Open-Meteo : %s" % e)
+        try:
+            latest["om"] = open_meteo_full(L)
+        except Exception as e:
+            errors.append("Open-Meteo détaillé : %s" % e)
+        try:
+            latest["air"] = air_quality(L)
+        except Exception as e:
+            errors.append("qualité de l'air : %s" % e)
         # 4) Prévisions archivées
         try:
             known = read_csv(fcp, FC_COLS)

@@ -36,8 +36,12 @@ Dans l'application, **Mode du widget** choisit la présentation (réglage commun
 - **Tuiles + page** (design « Bento sombre », fond sombre fixe quel que soit le thème) : en-tête (lieu, heure, bouton d'actualisation), grande tuile Extérieur avec la pastille pluie / neige attendue, puis tuiles : Extérieur, Prévision, Pluie, Vent, Humidité, Pression, Limite neige (7 en 4×3) puis Demain, Coucher, Air, Intérieur (11 en 4×4) ; en 4×2, une seule rangée de petites tuiles ; un appui ouvre une fiche détaillée en plein écran, dessinée comme les maquettes (9 fiches : Température, Pluie et neige, Limite neige, Vent, Humidité, Pression, Prévisions, Soleil et UV, Air et pollens) ; la pluie y est colorée selon son intensité (bleu clair → bleu → violet → rose), avec une échelle en mm/h pour les pas de 5 min et les barres horaires et une échelle en mm/jour pour les 7 jours ;
 - **Tuiles + détail** : mêmes tuiles ; un appui affiche le détail directement dans le widget, dessiné comme les maquettes (retour, icône du sujet, onglets en pastilles, ⤢ pour la fiche plein écran), retour automatique aux tuiles après 30 s. Demande un widget d'au moins 4×3 cases ; en dessous (et pour Soleil et Air), un appui ouvre la fiche plein écran.
 
-## Page web (v0.10.0)
-Tableau de bord sur GitHub Pages : mesures de la station, prévisions de chaque modèle, et onglet « Performance des modèles » (écart, biais, détection de la pluie au fil du temps). Collecte toutes les 30 min, historique en CSV (voir `web/README.md`).
+## Page web (dossier `web/`)
+Tableau de bord GitHub Pages en 3 onglets, alimenté toutes les 30 min :
+- **Aujourd'hui** : conditions actuelles (station + Open-Meteo), courbes de la journée en cours (station au pas de 5 min contre prévisions), 48 h, 7 jours, soleil / lune, qualité de l'air et pollens, modèles côte à côte ;
+- **Performance** : classement des modèles par échéance (+1 h à J+5), carte échéance × modèle, dégradation avec l'échéance, évolution dans le temps, biais selon l'heure, distribution des erreurs ;
+- **Historique** : KPI de période, courbes jour après jour (mesuré contre prévision de la veille), records, calendrier, mois par mois, tableau triable exportable en CSV.
+Les CSV s'incrémentent sur la branche `data` (détails dans `web/README.md`).
 
 ## Actualisation
 
