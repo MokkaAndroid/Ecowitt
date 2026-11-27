@@ -12,7 +12,7 @@ const $ = EW.$ = (s, r = document) => r.querySelector(s);
 EW.$$ = (s, r = document) => [...r.querySelectorAll(s)];
 EW.css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 EW.mcolor = m => EW.css('--s' + (EW.MODELS.indexOf(m) + 1));
-EW.nf = (v, d = 1) => (v == null || Number.isNaN(v)) ? '—' : v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
+EW.nf = (v, d = 1) => (v == null || Number.isNaN(v)) ? '—' : v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }).replace(/^[-−]([0,]*)$/, '$1');
 EW.sgn = (v, d = 1) => (v == null || Number.isNaN(v)) ? '—' : (v > 0 ? '+' : '') + EW.nf(v, d);
 EW.esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 EW.el = (tag, attrs = {}, html = '') => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); e.innerHTML = html; return e; };
@@ -201,8 +201,8 @@ EW.card = (cls, title, sub, body, extra = '') => `<div class="card ${cls || ''}"
 const WMO = { 0: 'Ciel dégagé', 1: 'Plutôt dégagé', 2: 'Partiellement nuageux', 3: 'Couvert', 45: 'Brouillard', 48: 'Brouillard givrant', 51: 'Bruine légère', 53: 'Bruine', 55: 'Bruine forte', 56: 'Bruine verglaçante', 57: 'Bruine verglaçante', 61: 'Pluie faible', 63: 'Pluie', 65: 'Pluie forte', 66: 'Pluie verglaçante', 67: 'Pluie verglaçante', 71: 'Neige faible', 73: 'Neige', 75: 'Neige forte', 77: 'Grains de neige', 80: 'Averses faibles', 81: 'Averses', 82: 'Averses violentes', 85: 'Averses de neige', 86: 'Averses de neige', 95: 'Orage', 96: 'Orage et grêle', 99: 'Orage et forte grêle' };
 EW.wmo = c => WMO[c] || '—';
 const SUN = (x, y, r, rays = true) => `<g><circle cx="${x}" cy="${y}" r="${r}" fill="#ffc83d"/>${rays ? [0, 45, 90, 135, 180, 225, 270, 315].map(a => `<line x1="${x}" y1="${y - r - 3}" x2="${x}" y2="${y - r - 6}" stroke="#ffc83d" stroke-width="2" stroke-linecap="round" transform="rotate(${a} ${x} ${y})"/>`).join('') : ''}</g>`;
-const MOON = (x, y, r) => `<path d="M${x + r * .35} ${y - r} A${r} ${r} 0 1 0 ${x + r} ${y + r * .3} A${r * .8} ${r * .8} 0 0 1 ${x + r * .35} ${y - r}z" fill="#dfe7f5"/>`;
-const CLOUD = (x, y, s, fill) => `<path transform="translate(${x} ${y}) scale(${s})" d="M10 26h24a8 8 0 0 0 0-16 11 11 0 0 0-20.4-2.6A9.4 9.4 0 0 0 10 26z" fill="${fill}"/>`;
+const MOON = (x, y, r) => `<path d="M${x + r * .35} ${y - r} A${r} ${r} 0 1 0 ${x + r} ${y + r * .3} A${r * .8} ${r * .8} 0 0 1 ${x + r * .35} ${y - r}z" fill="#dfe7f5" stroke="#7d8aa3" stroke-opacity=".55" stroke-width="1"/>`;
+const CLOUD = (x, y, s, fill) => `<path transform="translate(${x} ${y}) scale(${s})" d="M10 26h24a8 8 0 0 0 0-16 11 11 0 0 0-20.4-2.6A9.4 9.4 0 0 0 10 26z" fill="${fill}" stroke="#7d8aa3" stroke-opacity=".5" stroke-width="${.9 / s}"/>`;
 EW.icon = (code, day = true, size = 40) => {
   const dark = '#8a97ab', mid = '#b6c1d1', white = '#e6ecf5'; let g = '';
   const rain = n => Array.from({ length: n }, (_, i) => `<line x1="${16 + i * 8}" y1="36" x2="${13 + i * 8}" y2="44" stroke="#4aa3ff" stroke-width="2.6" stroke-linecap="round"/>`).join('');

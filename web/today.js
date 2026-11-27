@@ -46,6 +46,7 @@ function hero() {
         <div><span class="lab">Prévu</span><span class="mm dim"><i class="dn">▼</i> ${nf(omd.temperature_2m_min, 0)}°  <i class="up">▲</i> ${nf(omd.temperature_2m_max, 0)}°</span></div>
       </div>
     </div>
+    <div class="hero-spark"><canvas></canvas><span class="lab">Température depuis minuit</span></div>
     <div class="facts">
       ${fact('Vent', nf(st.wind ?? cur.wind_speed_10m, 0), 'km/h', EW.arrow(st.wind_dir ?? cur.wind_direction_10m, 14) + ' ' + EW.cardinal(st.wind_dir ?? cur.wind_direction_10m) + ' · rafale ' + nf(st.gust ?? cur.wind_gusts_10m, 0))}
       ${fact('Humidité', nf(st.hum ?? cur.relative_humidity_2m, 0), '%', 'rosée ' + nf(st.dew, 1) + '°')}
@@ -184,7 +185,8 @@ const AQI = [[20, 'Bon', '--good'], [40, 'Correct', '--good'], [60, 'Moyen', '--
 function airCard() {
   const a = L().air; if (!a) return EW.card('s4', 'Air et pollens', '', '<p class="foot">Qualité de l\'air indisponible.</p>');
   const c = a.current || {}; const q = c.european_aqi; const lv = q == null ? null : AQI.find(x => q <= x[0]);
-  const pol = [['alder_pollen', 'Aulne'], ['birch_pollen', 'Bouleau'], ['grass_pollen', 'Graminées'], ['mugwort_pollen', 'Armoise'], ['olive_pollen', 'Olivier'], ['ragweed_pollen', 'Ambroisie']].filter(p => c[p[0]] != null);
+  const polAll = [['alder_pollen', 'Aulne'], ['birch_pollen', 'Bouleau'], ['grass_pollen', 'Graminées'], ['mugwort_pollen', 'Armoise'], ['olive_pollen', 'Olivier'], ['ragweed_pollen', 'Ambroisie']].filter(p => c[p[0]] != null);
+  const pol = polAll.some(p => c[p[0]] > 0) ? polAll : [];
   const pm = (lab, v, unit, lim) => `<div class="pm"><span class="lab">${lab}</span><b style="${v != null && v > lim ? 'color:var(--warn)' : ''}">${nf(v, 0)}</b><small>${unit}</small></div>`;
   return EW.card('s4', 'Air et pollens', 'Open-Meteo · UE', `
     <div class="aqi"><div class="aqi-v" style="color:var(${lv ? lv[2] : '--t2'})">${nf(q, 0)}</div><div><b>${lv ? lv[1] : '—'}</b><span class="sub">Indice européen de qualité de l'air</span></div></div>
@@ -251,7 +253,7 @@ EW.views.today = {
       EW.card('s8', 'Journée en cours', 'station contre prévisions', `<div class="controls"><div class="seg" id="d-seg"></div></div><div class="legend" id="d-legend"></div><div class="chart tall"><canvas id="c-day" role="img" aria-label="Courbe de la journée"></canvas></div><p class="foot" id="d-foot"></p>`) +
       airCard() + next48() + week() + EW.card('s5', 'Résumé de la journée', 'mesures de la station', daySummary()) + modelsCard() + rawCard();
     // Tuiles : on garde la liste pour dessiner les mini-courbes.
-    drawSparks();
+    drawSparks(); { const td = L().today; if (td) EW.spark($('.hero-spark canvas', root), td.temp, '#ffffff'); }
     EW.seg($('#d-seg'), Object.entries(DV).map(([k, v]) => [k, v.label]), T.v, k => { T.v = k; dayChart(); });
     dayChart(); draw48();
     EW.seg($('#m-var'), Object.entries(MV).map(([k, v]) => [k, v.label]), T.mv, k => { T.mv = k; drawModels(); });
